@@ -80,6 +80,18 @@ def yes_no_keyboard(prefix: str) -> InlineKeyboardMarkup:
     )
 
 
+def driver_remarks_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Да", callback_data="driver_remarks:yes"),
+                InlineKeyboardButton(text="Нет", callback_data="driver_remarks:no"),
+            ],
+            [InlineKeyboardButton(text="Указал ранее", callback_data="driver_remarks:already")],
+        ]
+    )
+
+
 def damage_photos_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

@@ -27,6 +27,8 @@ async def init_db(engine: AsyncEngine) -> None:
                 "tire_type": "VARCHAR(32)",
                 "tire_score": "INTEGER",
                 "tire_comment": "TEXT",
+                "driver_has_remarks": "BOOLEAN",
+                "driver_remarks_comment": "TEXT",
             }
             for name, sql_type in columns.items():
                 if name not in existing_columns:

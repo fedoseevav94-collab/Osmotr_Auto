@@ -39,6 +39,7 @@ def make_inspection(photos: list[InspectionPhoto]) -> InspectionSession:
         status="COMPLETED",
         plate_normalized="O917HX797",
         has_damage=False,
+        driver_has_remarks=False,
         body_score=4,
         tech_score=5,
         wrap_score=4,
@@ -61,6 +62,15 @@ def test_summary_includes_tire_block_when_present():
     assert "Тип: зимняя" in summary
     assert "Состояние: 3/5" in summary
     assert "Комментарий: Износ протектора" in summary
+
+
+def test_summary_includes_driver_remarks_for_return_scenarios():
+    inspection = make_inspection([])
+    inspection.driver_has_remarks = True
+    inspection.driver_remarks_comment = "Водитель сообщил о шуме"
+    summary = build_summary(inspection)
+    assert "Замечания водителя:" in summary
+    assert "Водитель сообщил о шуме" in summary
 
 
 @pytest.mark.asyncio

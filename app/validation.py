@@ -44,6 +44,11 @@ def validate_completion(inspection: InspectionSession) -> list[str]:
                 errors.append(f"нужна оценка: {title}")
             if score is not None and score < 4 and not comment:
                 errors.append(f"нужен комментарий к оценке: {title}")
+    if scenario in SURRENDER_SCENARIOS:
+        if inspection.driver_has_remarks is None:
+            errors.append("нужно указать, есть ли замечания у водителя")
+        if inspection.driver_has_remarks and not inspection.driver_remarks_comment:
+            errors.append("нужно описание замечаний водителя")
     if inspection.tire_type is not None or inspection.tire_score is not None:
         if inspection.tire_type not in TIRE_TYPES:
             errors.append("нужно выбрать тип резины")

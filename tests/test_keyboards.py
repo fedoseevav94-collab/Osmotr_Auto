@@ -1,5 +1,6 @@
 from app.keyboards import (
     reset_confirm_keyboard,
+    driver_remarks_keyboard,
     staff_menu_keyboard,
     staff_reply_keyboard,
     start_keyboard,
@@ -38,3 +39,7 @@ def test_staff_keyboard_has_reset_back_forward():
 def test_reset_requires_inline_confirmation():
     keyboard = reset_confirm_keyboard()
     assert _inline_labels(keyboard) == ["Да, сбросить", "Нет, оставить"]
+
+
+def test_driver_remarks_keyboard_has_already_option():
+    assert _inline_labels(driver_remarks_keyboard()) == ["Да", "Нет", "Указал ранее"]

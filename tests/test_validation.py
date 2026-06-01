@@ -15,6 +15,7 @@ def make_inspection(scenario: Scenario = Scenario.RETURN) -> InspectionSession:
         body_score=4,
         tech_score=5,
         wrap_score=4,
+        driver_has_remarks=False,
         photos=[
             InspectionPhoto(photo_type=PhotoType.PLATE.value, telegram_file_id="p", telegram_file_unique_id="pu"),
             InspectionPhoto(photo_type=PhotoType.DASHBOARD.value, telegram_file_id="d", telegram_file_unique_id="du"),
@@ -79,3 +80,25 @@ def test_tire_score_four_does_not_require_comment():
     inspection.tire_score = 4
     inspection.tire_comment = None
     assert "нужен комментарий к оценке резины" not in validate_completion(inspection)
+
+
+def test_return_requires_driver_remarks_answer():
+    inspection = make_inspection()
+    inspection.driver_has_remarks = None
+    errors = validate_completion(inspection)
+    assert "нужно указать, есть ли замечания у водителя" in errors
+
+
+def test_driver_remarks_yes_requires_comment():
+    inspection = make_inspection()
+    inspection.driver_has_remarks = True
+    inspection.driver_remarks_comment = None
+    errors = validate_completion(inspection)
+    assert "нужно описание замечаний водителя" in errors
+
+
+def test_driver_remarks_already_is_accepted():
+    inspection = make_inspection()
+    inspection.driver_has_remarks = True
+    inspection.driver_remarks_comment = "Указал ранее"
+    assert "нужно описание замечаний водителя" not in validate_completion(inspection)

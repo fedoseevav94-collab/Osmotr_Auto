@@ -13,6 +13,8 @@ class InspectionFlow(StatesGroup):
     damage_description = State()
     score = State()
     score_comment = State()
+    driver_remarks = State()
+    driver_remarks_comment = State()
     tire_type = State()
     tire_photo = State()
     tire_score = State()

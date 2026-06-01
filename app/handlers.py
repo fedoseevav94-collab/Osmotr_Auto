@@ -23,6 +23,7 @@ from app.export import period_bounds, write_history_xlsx, write_problem_xlsx, wr
 from app.keyboards import (
     damage_photos_keyboard,
     draft_keyboard,
+    driver_remarks_keyboard,
     dtp_keyboard,
     export_period_keyboard,
     problem_period_keyboard,
@@ -119,6 +120,19 @@ def _draft_next_step(inspection):
                     {"comment_prefix": prefix, "score_index": index},
                     None,
                 )
+    if scenario in SURRENDER_SCENARIOS and inspection.driver_has_remarks is None:
+        return (
+            InspectionFlow.driver_remarks,
+            "Есть ли замечания по авто у водителя?",
+            {},
+            driver_remarks_keyboard(),
+        )
+    if (
+        scenario in SURRENDER_SCENARIOS
+        and inspection.driver_has_remarks
+        and not inspection.driver_remarks_comment
+    ):
+        return InspectionFlow.driver_remarks_comment, "Опишите замечания водителя по авто.", {}, None
     if inspection.tire_type and not has_photo(inspection, PhotoType.TIRE):
         return InspectionFlow.tire_photo, "Отправьте фото резины / протектора.", {}, None
     if inspection.tire_type and inspection.tire_score is None:
@@ -697,7 +711,80 @@ async def next_score_or_finish(message: Message, state: FSMContext) -> None:
         await state.update_data(score_index=next_index)
         await ask_score(message, state)
     else:
+        await maybe_ask_driver_remarks_or_continue(message, state)
+
+
+async def maybe_ask_driver_remarks_or_continue(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        inspection = await repo.get(data["inspection_id"])
+        scenario = Scenario(inspection.scenario)
+        should_ask = scenario in SURRENDER_SCENARIOS and inspection.driver_has_remarks is None
+    if should_ask:
+        await _set_state(state, InspectionFlow.driver_remarks)
+        await message.answer(
+            "Есть ли замечания по авто у водителя?",
+            reply_markup=driver_remarks_keyboard(),
+        )
+    else:
         await maybe_ask_tire_or_finish(message, state)
+
+
+@router.callback_query(InspectionFlow.driver_remarks, F.data.startswith("driver_remarks:"))
+async def driver_remarks(callback: CallbackQuery, state: FSMContext) -> None:
+    value = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        inspection = await repo.get(data["inspection_id"])
+        if value == "yes":
+            inspection.driver_has_remarks = True
+            action_comment = "yes"
+        elif value == "already":
+            inspection.driver_has_remarks = True
+            inspection.driver_remarks_comment = "Указал ранее"
+            action_comment = "already"
+        else:
+            inspection.driver_has_remarks = False
+            inspection.driver_remarks_comment = None
+            action_comment = "no"
+        await repo.log_action(
+            inspection,
+            "DRIVER_REMARKS",
+            callback.from_user.id,
+            callback.from_user.username,
+            action_comment,
+        )
+    await callback.answer()
+    if value == "yes":
+        await _set_state(state, InspectionFlow.driver_remarks_comment)
+        await callback.message.answer("Опишите замечания водителя по авто.")
+        return
+    await maybe_ask_tire_or_finish(callback.message, state)
+
+
+@router.message(InspectionFlow.driver_remarks_comment, F.text)
+async def driver_remarks_comment(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
+    text = message.text.strip()
+    if not text:
+        await message.answer("Нужно описание замечаний водителя.")
+        return
+    data = await state.get_data()
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        inspection = await repo.get(data["inspection_id"])
+        inspection.driver_has_remarks = True
+        inspection.driver_remarks_comment = text
+        await repo.log_action(
+            inspection,
+            "DRIVER_REMARKS_COMMENT",
+            message.from_user.id,
+            message.from_user.username,
+        )
+    await maybe_ask_tire_or_finish(message, state)
 
 
 async def ask_tire_type(message: Message, state: FSMContext) -> None:

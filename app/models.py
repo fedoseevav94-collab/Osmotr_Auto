@@ -33,6 +33,8 @@ class InspectionSession(Base):
     tire_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tire_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tire_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    driver_has_remarks: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    driver_remarks_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     fp_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     fp_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

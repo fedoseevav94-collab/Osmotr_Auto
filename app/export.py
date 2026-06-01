@@ -22,6 +22,8 @@ SCORE_HEADERS = [
     "Комментарий по техническому состоянию",
     "Оклейка",
     "Комментарий по оклейке",
+    "Есть замечания водителя",
+    "Комментарий по замечаниям водителя",
     "Тип резины",
     "Оценка резины",
     "Комментарий по резине",
@@ -76,6 +78,8 @@ def _base_values(row: InspectionSession) -> list[object]:
         row.tech_comment or "",
         row.wrap_score,
         row.wrap_comment or "",
+        _yes_no(row.driver_has_remarks),
+        row.driver_remarks_comment or "",
         TIRE_TYPES.get(row.tire_type or "", row.tire_type or ""),
         row.tire_score,
         row.tire_comment or "",
@@ -137,6 +141,12 @@ def problem_reason(row: InspectionSession) -> str:
     if row.tire_score is not None and row.tire_score < 4:
         reasons.append("резина ниже 4")
     return ", ".join(reasons)
+
+
+def _yes_no(value: bool | None) -> str:
+    if value is None:
+        return ""
+    return "Да" if value else "Нет"
 
 
 def _autosize(ws) -> None:

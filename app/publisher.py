@@ -47,6 +47,13 @@ def build_summary(inspection: InspectionSession) -> str:
     if score_lines:
         lines += ["", "Оценки:", *score_lines]
 
+    if scenario in {Scenario.RETURN, Scenario.TRANSFER}:
+        lines += ["", "Замечания водителя:"]
+        if inspection.driver_has_remarks:
+            lines.append(inspection.driver_remarks_comment or "")
+        else:
+            lines[-1] = "Замечания водителя: нет"
+
     if inspection.tire_type or inspection.tire_score is not None:
         lines += [
             "",
