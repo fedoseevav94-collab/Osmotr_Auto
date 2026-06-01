@@ -10,10 +10,10 @@ BACK_BUTTON = "⬅️ Назад"
 FORWARD_BUTTON = "➡️ Вперёд"
 
 SCENARIO_LABELS = {
-    Scenario.RETURN: "📥 Сдача",
-    Scenario.TRANSFER: "🔁 Пересадка",
-    Scenario.ISSUE: "📤 Выдача авто",
-    Scenario.PLANNED: "🔎 Плановый осмотр",
+    Scenario.RETURN: "🏁 Сдача",
+    Scenario.TRANSFER: "🔄 Пересадка",
+    Scenario.ISSUE: "🔑 Выдача авто",
+    Scenario.PLANNED: "🧾 Плановый осмотр",
     Scenario.ACCIDENT: "🚨 Осмотр после ДТП",
 }
 

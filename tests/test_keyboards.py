@@ -5,6 +5,7 @@ from app.keyboards import (
     START_BUTTON,
     reset_confirm_keyboard,
     driver_remarks_keyboard,
+    scenario_keyboard,
     staff_idle_keyboard,
     staff_menu_keyboard,
     staff_reply_keyboard,
@@ -23,6 +24,16 @@ def test_start_keyboard_chooses_role():
 
 def test_staff_menu_has_inspection_and_drafts():
     assert _inline_labels(staff_menu_keyboard()) == [START_BUTTON, "📋 Мои черновики"]
+
+
+def test_scenario_keyboard_has_distinct_icons():
+    assert _inline_labels(scenario_keyboard()) == [
+        "🏁 Сдача",
+        "🔄 Пересадка",
+        "🔑 Выдача авто",
+        "🧾 Плановый осмотр",
+        "🚨 Осмотр после ДТП",
+    ]
 
 
 def test_staff_idle_keyboard_has_start_button():

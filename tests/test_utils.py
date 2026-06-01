@@ -15,3 +15,7 @@ def test_transfer_marker_is_returned_as_surrendered():
 
 def test_extract_plate_from_ocr_text_with_noise():
     assert extract_plate_from_text("Яндекс Go\n- Х480СХ797 RUS\nSTAX.RU") == "X480CX797"
+
+
+def test_extract_plate_from_ocr_text_with_zero_letter_confusion():
+    assert extract_plate_from_text("086400797") == "O864OO797"

@@ -179,17 +179,25 @@ async def _handle_control_text(message: Message, state: FSMContext) -> bool:
     return False
 
 
-async def _get_or_create_active(message: Message):
+async def _get_or_create_active(
+    message: Message,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+):
+    user_id = user_id if user_id is not None else message.from_user.id
+    username = username if username is not None else message.from_user.username
+    full_name = full_name if full_name is not None else message.from_user.full_name
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
-        inspection = await repo.active_for_user(message.from_user.id)
+        inspection = await repo.active_for_user(user_id)
         if inspection is None:
             inspection = await repo.create_session(
-                message.from_user.id,
-                message.from_user.username,
-                message.from_user.full_name,
+                user_id,
+                username,
+                full_name,
             )
-            await repo.log_action(inspection, "CREATE", message.from_user.id, message.from_user.username)
+            await repo.log_action(inspection, "CREATE", user_id, username)
         return inspection.id
 
 
@@ -261,7 +269,13 @@ async def new_inspection_button(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "new_inspection")
 async def new_inspection_cb(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    await start_new_inspection(callback.message, state)
+    await start_new_inspection(
+        callback.message,
+        state,
+        user_id=callback.from_user.id,
+        username=callback.from_user.username,
+        full_name=callback.from_user.full_name,
+    )
 
 
 @router.callback_query(F.data == "my_drafts")
@@ -306,8 +320,14 @@ async def tire_check_cb(callback: CallbackQuery, state: FSMContext) -> None:
     await start_tire_campaign(callback.message, state, username=callback.from_user.username, user_id=callback.from_user.id)
 
 
-async def start_new_inspection(message: Message, state: FSMContext) -> None:
-    inspection_id = await _get_or_create_active(message)
+async def start_new_inspection(
+    message: Message,
+    state: FSMContext,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+) -> None:
+    inspection_id = await _get_or_create_active(message, user_id=user_id, username=username, full_name=full_name)
     await _set_state(state, InspectionFlow.choosing_scenario)
     await state.update_data(inspection_id=inspection_id)
     await message.answer(
@@ -487,10 +507,18 @@ async def choose_scenario(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if scenario == Scenario.ACCIDENT:
         await _set_state(state, InspectionFlow.accident_guilt)
-        await callback.message.answer(_accent("🚨 Водитель виноват?"), reply_markup=dtp_keyboard(), parse_mode="HTML")
+        await callback.message.answer(
+            _accent("🚨 Водитель виноват?"),
+            reply_markup=dtp_keyboard(),
+            parse_mode="HTML",
+        )
     else:
         await _set_state(state, InspectionFlow.plate_photo)
-        await callback.message.answer(_accent("📸 Отправьте фото госномера."), parse_mode="HTML")
+        await callback.message.answer(
+            _accent("📸 Отправьте фото госномера."),
+            reply_markup=staff_reply_keyboard(),
+            parse_mode="HTML",
+        )
 
 
 @router.callback_query(InspectionFlow.accident_guilt, F.data.startswith("dtp:"))
@@ -504,7 +532,11 @@ async def accident_guilt(callback: CallbackQuery, state: FSMContext) -> None:
         await repo.log_action(inspection, "DTP_GUILT", callback.from_user.id, callback.from_user.username, value)
     await callback.answer()
     await _set_state(state, InspectionFlow.plate_photo)
-    await callback.message.answer(_accent("📸 Отправьте фото госномера."), parse_mode="HTML")
+    await callback.message.answer(
+        _accent("📸 Отправьте фото госномера."),
+        reply_markup=staff_reply_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(InspectionFlow.plate_photo, F.photo)
@@ -536,12 +568,16 @@ async def plate_photo(message: Message, state: FSMContext) -> None:
         return
     logger.info("OCR did not recognize a plate from photo")
     await _set_state(state, InspectionFlow.plate_text)
-    await message.answer(_accent("✍️ Введите госномер вручную."), parse_mode="HTML")
+    await message.answer(_accent("✍️ Введите госномер вручную."), reply_markup=staff_reply_keyboard(), parse_mode="HTML")
 
 
 @router.message(InspectionFlow.plate_photo)
 async def plate_photo_required(message: Message) -> None:
-    await message.answer(_accent("📸 Нужно именно фото госномера. Отправьте фото."), parse_mode="HTML")
+    await message.answer(
+        _accent("📸 Нужно именно фото госномера. Отправьте фото."),
+        reply_markup=staff_reply_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(InspectionFlow.plate_confirm, F.data.startswith("ocr_plate:"))
@@ -552,7 +588,11 @@ async def plate_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await save_plate_and_continue(callback.message, state, data["ocr_plate"])
         return
     await _set_state(state, InspectionFlow.plate_text)
-    await callback.message.answer(_accent("✍️ Введите госномер вручную."), parse_mode="HTML")
+    await callback.message.answer(
+        _accent("✍️ Введите госномер вручную."),
+        reply_markup=staff_reply_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(InspectionFlow.plate_text, F.text)
