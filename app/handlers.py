@@ -84,6 +84,10 @@ def _end_of_today() -> datetime:
     return now.replace(hour=23, minute=59, second=59, microsecond=0)
 
 
+def _start_mode_for_user(username: str | None) -> str:
+    return "supervisor" if is_supervisor(username, _settings().supervisor_username) else "staff"
+
+
 def _draft_next_step(inspection):
     if not inspection.scenario:
         return InspectionFlow.choosing_scenario, "Выберите сценарий осмотра:", {}, scenario_keyboard()
@@ -171,6 +175,9 @@ async def _create_new_session(message: Message) -> int:
 @router.message(Command("start", "help"))
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
+    if _start_mode_for_user(message.from_user.username) == "staff":
+        await show_staff_menu(message, state)
+        return
     await message.answer(
         "Привет. Выберите режим работы:",
         reply_markup=start_keyboard(),
