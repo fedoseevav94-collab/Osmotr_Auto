@@ -1,0 +1,12 @@
+.venv/
+.venv313/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+data/
+.ssh/
+.env
+bot.env
+env.visible
+github_deploy_key_public.txt
