@@ -51,7 +51,7 @@ docker run --env-file .env -v "$(pwd)/data:/app/data" inspection-bot
 
 ```env
 BOT_TOKEN=
-FP_CHAT_ID=1001905865504
+FP_CHAT_ID=-1001905865504
 DATABASE_URL=sqlite+aiosqlite:////app/data/bot.db
 SUPERVISOR_USERNAME=Fedos_AV
 INSPECTION_STAFF_USERNAMES=
@@ -60,6 +60,7 @@ VEHICLE_PLATES_XLSX=/app/seed/park_cars.xlsx
 ```
 
 Важно: бот должен быть добавлен в чат `ФП - фотофиксация повреждений` и иметь право отправлять сообщения/медиа.
+Для ссылки `https://web.telegram.org/a/#-1001905865504` значение переменной `FP_CHAT_ID` должно быть `-1001905865504`.
 
 `VEHICLE_PLATES_XLSX` уже указывает на встроенный файл `seed/park_cars.xlsx` с колонками
 `Марка`, `Модель`, `Номер`, `Статус`. Файл используется только как подсказка для

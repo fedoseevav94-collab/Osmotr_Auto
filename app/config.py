@@ -37,7 +37,7 @@ class Settings:
         }
         return cls(
             bot_token=os.getenv("BOT_TOKEN", ""),
-            fp_chat_id=normalize_telegram_chat_id(os.getenv("FP_CHAT_ID", "1001905865504")),
+            fp_chat_id=normalize_telegram_chat_id(os.getenv("FP_CHAT_ID", "-1001905865504")),
             database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///bot.db"),
             supervisor_username=os.getenv("SUPERVISOR_USERNAME", "Fedos_AV").lstrip("@").lower(),
             inspection_staff_usernames=staff,
