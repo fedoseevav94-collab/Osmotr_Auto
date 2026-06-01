@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -49,6 +50,7 @@ from app.validation import has_photo, validate_completion
 from app.vehicle_registry import plate_hint, read_vehicle_rows
 
 router = Router()
+logger = logging.getLogger(__name__)
 CONTROL_TEXTS = {"Сбросить осмотр", "Назад", "Вперёд"}
 _SETTINGS: Settings | None = None
 _SESSIONMAKER: async_sessionmaker | None = None
@@ -482,14 +484,17 @@ async def plate_photo(message: Message, state: FSMContext) -> None:
     photo_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         await message.bot.download(message.photo[-1], destination=photo_path)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to download plate photo for OCR: %s", exc)
         photo_path = None
     recognized = recognize_plate_from_image(photo_path) if photo_path else None
     if recognized:
+        logger.info("OCR recognized plate: %s", recognized)
         await _set_state(state, InspectionFlow.plate_confirm)
         await state.update_data(ocr_plate=recognized)
         await message.answer(f"Похоже, номер: {recognized}", reply_markup=ocr_confirm_keyboard())
         return
+    logger.info("OCR did not recognize a plate from photo")
     await _set_state(state, InspectionFlow.plate_text)
     await message.answer("Введите госномер вручную.")
 
