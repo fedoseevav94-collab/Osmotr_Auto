@@ -951,7 +951,7 @@ async def back_button(message: Message, state: FSMContext) -> None:
     current = await state.get_state()
     await state.set_state(previous)
     await state.update_data(previous_state=None, forward_state=current)
-    await message.answer("Вернулся на предыдущий шаг.")
+    await message.answer("Вернулся на предыдущий шаг.", reply_markup=staff_reply_keyboard(can_forward=True))
 
 
 @router.message(F.text == "Вперёд")
@@ -964,7 +964,7 @@ async def forward_button(message: Message, state: FSMContext) -> None:
     current = await state.get_state()
     await state.set_state(forward)
     await state.update_data(previous_state=current, forward_state=None)
-    await message.answer("Вернулся вперёд.")
+    await message.answer("Вернулся вперёд.", reply_markup=staff_reply_keyboard())
 
 
 @router.message(Command("cancel"))

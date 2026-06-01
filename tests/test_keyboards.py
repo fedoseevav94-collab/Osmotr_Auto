@@ -37,8 +37,14 @@ def test_supervisor_menu_has_management_actions_and_staff_mode():
     assert "Перейти в режим сотрудника" in labels
 
 
-def test_staff_keyboard_has_reset_back_forward():
+def test_staff_keyboard_hides_forward_by_default():
     keyboard = staff_reply_keyboard()
+    labels = [button.text for row in keyboard.keyboard for button in row]
+    assert labels == ["Сбросить осмотр", "Назад"]
+
+
+def test_staff_keyboard_shows_forward_when_available():
+    keyboard = staff_reply_keyboard(can_forward=True)
     labels = [button.text for row in keyboard.keyboard for button in row]
     assert labels == ["Сбросить осмотр", "Назад", "Вперёд"]
 

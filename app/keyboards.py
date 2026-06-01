@@ -44,15 +44,15 @@ def supervisor_menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def staff_reply_keyboard() -> ReplyKeyboardMarkup:
+def staff_reply_keyboard(can_forward: bool = False) -> ReplyKeyboardMarkup:
+    buttons = [
+        KeyboardButton(text="Сбросить осмотр"),
+        KeyboardButton(text="Назад"),
+    ]
+    if can_forward:
+        buttons.append(KeyboardButton(text="Вперёд"))
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="Сбросить осмотр"),
-                KeyboardButton(text="Назад"),
-                KeyboardButton(text="Вперёд"),
-            ],
-        ],
+        keyboard=[buttons],
         resize_keyboard=True,
         is_persistent=True,
     )
