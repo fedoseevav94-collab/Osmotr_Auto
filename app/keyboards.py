@@ -23,6 +23,14 @@ def staff_menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def staff_idle_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Начать осмотр")]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
 def supervisor_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

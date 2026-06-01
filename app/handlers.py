@@ -31,6 +31,7 @@ from app.keyboards import (
     reset_confirm_keyboard,
     scenario_keyboard,
     score_keyboard,
+    staff_idle_keyboard,
     staff_menu_keyboard,
     start_keyboard,
     staff_reply_keyboard,
@@ -51,7 +52,7 @@ from app.vehicle_registry import plate_hint, read_vehicle_rows
 
 router = Router()
 logger = logging.getLogger(__name__)
-CONTROL_TEXTS = {"Сбросить осмотр", "Назад", "Вперёд"}
+CONTROL_TEXTS = {"Сбросить осмотр", "Назад", "Вперёд", "Начать осмотр"}
 _SETTINGS: Settings | None = None
 _SESSIONMAKER: async_sessionmaker | None = None
 
@@ -150,6 +151,9 @@ def _photo_ids(message: Message) -> tuple[str, str]:
 
 
 async def _handle_control_text(message: Message, state: FSMContext) -> bool:
+    if message.text == "Начать осмотр":
+        await start_new_inspection(message, state)
+        return True
     if message.text == "Сбросить осмотр":
         await reset_button(message, state)
         return True
@@ -214,7 +218,7 @@ async def role_supervisor(callback: CallbackQuery, state: FSMContext) -> None:
 
 async def show_staff_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Режим сотрудника осмотра.", reply_markup=staff_reply_keyboard())
+    await message.answer("Режим сотрудника осмотра.", reply_markup=staff_idle_keyboard())
     await message.answer("Выберите действие:", reply_markup=staff_menu_keyboard())
 
 
@@ -228,6 +232,11 @@ async def show_supervisor_menu(message: Message, username: str | None, state: FS
 
 @router.message(Command("new_inspection"))
 async def new_inspection_cmd(message: Message, state: FSMContext) -> None:
+    await start_new_inspection(message, state)
+
+
+@router.message(F.text == "Начать осмотр")
+async def new_inspection_button(message: Message, state: FSMContext) -> None:
     await start_new_inspection(message, state)
 
 
@@ -283,6 +292,7 @@ async def start_new_inspection(message: Message, state: FSMContext) -> None:
     inspection_id = await _get_or_create_active(message)
     await _set_state(state, InspectionFlow.choosing_scenario)
     await state.update_data(inspection_id=inspection_id)
+    await message.answer("Рабочие кнопки осмотра закреплены ниже.", reply_markup=staff_reply_keyboard())
     await message.answer("Выберите сценарий осмотра:", reply_markup=scenario_keyboard())
 
 
@@ -911,7 +921,7 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
         inspection.fp_message_id = message_id
         await repo.log_action(inspection, "PUBLISH_FP", message.from_user.id, message.from_user.username)
     await state.clear()
-    await message.answer("Готово. Итог осмотра опубликован в ФП.")
+    await message.answer("Готово. Итог осмотра опубликован в ФП.", reply_markup=staff_idle_keyboard())
 
 
 @router.message(F.text == "Сбросить осмотр")
@@ -974,12 +984,12 @@ async def cancel(
         repo = InspectionRepository(session)
         inspection = await repo.active_for_user(user_id)
         if inspection is None:
-            await message.answer("Активного осмотра нет.")
+            await message.answer("Активного осмотра нет.", reply_markup=staff_idle_keyboard())
             return
         await repo.cancel(inspection)
         await repo.log_action(inspection, "CANCEL", user_id, username)
     await state.clear()
-    await message.answer("Текущий осмотр отменён.")
+    await message.answer("Текущий осмотр отменён.", reply_markup=staff_idle_keyboard())
 
 
 @router.message(Command("my_drafts"))
@@ -1020,6 +1030,7 @@ async def draft_resume(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(**extra_data)
     await _set_state(state, next_state)
     await callback.answer()
+    await callback.message.answer("Рабочие кнопки осмотра закреплены ниже.", reply_markup=staff_reply_keyboard())
     await callback.message.answer(prompt, reply_markup=markup)
 
 
@@ -1036,7 +1047,7 @@ async def draft_cancel(callback: CallbackQuery, state: FSMContext) -> None:
         await repo.log_action(inspection, "CANCEL_DRAFT", callback.from_user.id, callback.from_user.username)
     await state.clear()
     await callback.answer()
-    await callback.message.answer("Черновик отменён.")
+    await callback.message.answer("Черновик отменён.", reply_markup=staff_idle_keyboard())
 
 
 @router.message(Command("export_scores"))

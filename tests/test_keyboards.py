@@ -1,6 +1,7 @@
 from app.keyboards import (
     reset_confirm_keyboard,
     driver_remarks_keyboard,
+    staff_idle_keyboard,
     staff_menu_keyboard,
     staff_reply_keyboard,
     start_keyboard,
@@ -18,6 +19,12 @@ def test_start_keyboard_chooses_role():
 
 def test_staff_menu_has_inspection_and_drafts():
     assert _inline_labels(staff_menu_keyboard()) == ["Начать осмотр", "Мои черновики"]
+
+
+def test_staff_idle_keyboard_has_start_button():
+    keyboard = staff_idle_keyboard()
+    labels = [button.text for row in keyboard.keyboard for button in row]
+    assert labels == ["Начать осмотр"]
 
 
 def test_supervisor_menu_has_management_actions_and_staff_mode():
