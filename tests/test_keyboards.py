@@ -1,4 +1,32 @@
-from app.keyboards import reset_confirm_keyboard, staff_reply_keyboard
+from app.keyboards import (
+    reset_confirm_keyboard,
+    staff_menu_keyboard,
+    staff_reply_keyboard,
+    start_keyboard,
+    supervisor_menu_keyboard,
+)
+
+
+def _inline_labels(keyboard):
+    return [button.text for row in keyboard.inline_keyboard for button in row]
+
+
+def test_start_keyboard_chooses_role():
+    assert _inline_labels(start_keyboard()) == ["Сотрудник осмотра", "Руководитель"]
+
+
+def test_staff_menu_has_inspection_and_drafts():
+    assert _inline_labels(staff_menu_keyboard()) == ["Начать осмотр", "Мои черновики"]
+
+
+def test_supervisor_menu_has_management_actions_and_staff_mode():
+    labels = _inline_labels(supervisor_menu_keyboard())
+    assert "Статистика за сегодня" in labels
+    assert "Выгрузить оценки" in labels
+    assert "Проблемные авто" in labels
+    assert "Проверка резины" in labels
+    assert "Статус кампаний" in labels
+    assert "Перейти в режим сотрудника" in labels
 
 
 def test_staff_keyboard_has_reset_back_forward():
@@ -9,5 +37,4 @@ def test_staff_keyboard_has_reset_back_forward():
 
 def test_reset_requires_inline_confirmation():
     keyboard = reset_confirm_keyboard()
-    labels = [button.text for row in keyboard.inline_keyboard for button in row]
-    assert labels == ["Да, сбросить", "Нет, оставить"]
+    assert _inline_labels(keyboard) == ["Да, сбросить", "Нет, оставить"]

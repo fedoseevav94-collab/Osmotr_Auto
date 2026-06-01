@@ -29,8 +29,10 @@ from app.keyboards import (
     reset_confirm_keyboard,
     scenario_keyboard,
     score_keyboard,
+    staff_menu_keyboard,
     start_keyboard,
     staff_reply_keyboard,
+    supervisor_menu_keyboard,
     ocr_confirm_keyboard,
     tire_campaign_mode_keyboard,
     tire_score_keyboard,
@@ -170,11 +172,35 @@ async def _create_new_session(message: Message) -> int:
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer(
-        "Привет. Я проведу осмотр авто по шагам и отправлю итог в ФП.\n"
-        "Для разовой проверки резины используйте /tire_check.",
+        "Привет. Выберите режим работы:",
         reply_markup=start_keyboard(),
     )
-    await message.answer("Рабочие кнопки сотрудника закреплены ниже.", reply_markup=staff_reply_keyboard())
+
+
+@router.callback_query(F.data == "role:staff")
+async def role_staff(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await show_staff_menu(callback.message, state)
+
+
+@router.callback_query(F.data == "role:supervisor")
+async def role_supervisor(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await show_supervisor_menu(callback.message, callback.from_user.username, state)
+
+
+async def show_staff_menu(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Режим сотрудника осмотра.", reply_markup=staff_reply_keyboard())
+    await message.answer("Выберите действие:", reply_markup=staff_menu_keyboard())
+
+
+async def show_supervisor_menu(message: Message, username: str | None, state: FSMContext) -> None:
+    if not is_supervisor(username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    await state.clear()
+    await message.answer("Режим руководителя. Выберите действие:", reply_markup=supervisor_menu_keyboard())
 
 
 @router.message(Command("new_inspection"))
@@ -186,6 +212,37 @@ async def new_inspection_cmd(message: Message, state: FSMContext) -> None:
 async def new_inspection_cb(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await start_new_inspection(callback.message, state)
+
+
+@router.callback_query(F.data == "my_drafts")
+async def my_drafts_cb(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await show_my_drafts(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data.startswith("supervisor:"))
+async def supervisor_menu_action(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_supervisor(callback.from_user.username, _settings().supervisor_username):
+        await callback.message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        await callback.answer()
+        return
+    action = callback.data.split(":", 1)[1]
+    await callback.answer()
+    if action == "stats_today":
+        await send_stats_today(callback.message)
+    elif action == "export_scores":
+        await callback.message.answer("Выберите период:", reply_markup=export_period_keyboard())
+    elif action == "export_problems":
+        await callback.message.answer("Выберите период для проблемных авто:", reply_markup=problem_period_keyboard())
+    elif action == "tire_check":
+        await start_tire_campaign(
+            callback.message,
+            state,
+            username=callback.from_user.username,
+            user_id=callback.from_user.id,
+        )
+    elif action == "active_campaigns":
+        await send_tire_check_status(callback.message, callback.from_user.username)
 
 
 @router.message(Command("tire_check"))
@@ -306,7 +363,11 @@ async def tire_check_stop(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("tire_check_status"))
 async def tire_check_status(message: Message) -> None:
-    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+    await send_tire_check_status(message, message.from_user.username)
+
+
+async def send_tire_check_status(message: Message, username: str | None) -> None:
+    if not is_supervisor(username, _settings().supervisor_username):
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
     async with session_scope(_sessionmaker()) as session:
@@ -337,6 +398,10 @@ async def stats_today(message: Message) -> None:
     if not is_supervisor(message.from_user.username, _settings().supervisor_username):
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
+    await send_stats_today(message)
+
+
+async def send_stats_today(message: Message) -> None:
     start, end = period_bounds("today")
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
@@ -820,9 +885,13 @@ async def cancel(
 
 @router.message(Command("my_drafts"))
 async def my_drafts(message: Message) -> None:
+    await show_my_drafts(message, message.from_user.id)
+
+
+async def show_my_drafts(message: Message, user_id: int) -> None:
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
-        drafts = await repo.drafts_for_user(message.from_user.id)
+        drafts = await repo.drafts_for_user(user_id)
     if not drafts:
         await message.answer("Черновиков нет.")
         return

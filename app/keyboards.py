@@ -8,8 +8,30 @@ from app.constants import STANDARD_SCENARIOS, Scenario, TIRE_TYPES
 def start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="Сотрудник осмотра", callback_data="role:staff")],
+            [InlineKeyboardButton(text="Руководитель", callback_data="role:supervisor")],
+        ]
+    )
+
+
+def staff_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [InlineKeyboardButton(text="Начать осмотр", callback_data="new_inspection")],
-            [InlineKeyboardButton(text="Проверить резину", callback_data="new_tire_check")],
+            [InlineKeyboardButton(text="Мои черновики", callback_data="my_drafts")],
+        ]
+    )
+
+
+def supervisor_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Статистика за сегодня", callback_data="supervisor:stats_today")],
+            [InlineKeyboardButton(text="Выгрузить оценки", callback_data="supervisor:export_scores")],
+            [InlineKeyboardButton(text="Проблемные авто", callback_data="supervisor:export_problems")],
+            [InlineKeyboardButton(text="Проверка резины", callback_data="supervisor:tire_check")],
+            [InlineKeyboardButton(text="Статус кампаний", callback_data="supervisor:active_campaigns")],
+            [InlineKeyboardButton(text="Перейти в режим сотрудника", callback_data="role:staff")],
         ]
     )
 
