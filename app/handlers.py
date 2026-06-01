@@ -47,6 +47,8 @@ from app.vehicle_registry import plate_hint, read_vehicle_rows
 
 router = Router()
 CONTROL_TEXTS = {"Сбросить осмотр", "Назад", "Вперёд"}
+_SETTINGS: Settings | None = None
+_SESSIONMAKER: async_sessionmaker | None = None
 
 
 def register_handlers(dp: Dispatcher) -> None:
@@ -54,11 +56,15 @@ def register_handlers(dp: Dispatcher) -> None:
 
 
 def _settings() -> Settings:
-    return router["settings"]
+    if _SETTINGS is None:
+        raise RuntimeError("Router settings are not configured")
+    return _SETTINGS
 
 
 def _sessionmaker() -> async_sessionmaker:
-    return router["sessionmaker"]
+    if _SESSIONMAKER is None:
+        raise RuntimeError("Router sessionmaker is not configured")
+    return _SESSIONMAKER
 
 
 async def _active_repo():
@@ -996,6 +1002,7 @@ async def history_auto(message: Message) -> None:
 
 
 def setup_router(settings: Settings, sessionmaker: async_sessionmaker) -> None:
+    global _SETTINGS, _SESSIONMAKER
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    router["settings"] = settings
-    router["sessionmaker"] = sessionmaker
+    _SETTINGS = settings
+    _SESSIONMAKER = sessionmaker
