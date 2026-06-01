@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from html import escape
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -22,6 +23,10 @@ from app.constants import (
 from app.db import session_scope
 from app.export import period_bounds, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
 from app.keyboards import (
+    BACK_BUTTON,
+    FORWARD_BUTTON,
+    RESET_BUTTON,
+    START_BUTTON,
     damage_photos_keyboard,
     draft_keyboard,
     driver_remarks_keyboard,
@@ -52,7 +57,11 @@ from app.vehicle_registry import plate_hint, read_vehicle_rows
 
 router = Router()
 logger = logging.getLogger(__name__)
-CONTROL_TEXTS = {"Сбросить осмотр", "Назад", "Вперёд", "Начать осмотр"}
+START_TEXTS = {START_BUTTON, "Начать осмотр"}
+RESET_TEXTS = {RESET_BUTTON, "Сбросить осмотр"}
+BACK_TEXTS = {BACK_BUTTON, "Назад"}
+FORWARD_TEXTS = {FORWARD_BUTTON, "Вперёд"}
+CONTROL_TEXTS = START_TEXTS | RESET_TEXTS | BACK_TEXTS | FORWARD_TEXTS
 _SETTINGS: Settings | None = None
 _SESSIONMAKER: async_sessionmaker | None = None
 
@@ -71,6 +80,10 @@ def _sessionmaker() -> async_sessionmaker:
     if _SESSIONMAKER is None:
         raise RuntimeError("Router sessionmaker is not configured")
     return _SESSIONMAKER
+
+
+def _accent(text: str) -> str:
+    return f"<b>{escape(text)}</b>"
 
 
 async def _active_repo():
@@ -151,16 +164,16 @@ def _photo_ids(message: Message) -> tuple[str, str]:
 
 
 async def _handle_control_text(message: Message, state: FSMContext) -> bool:
-    if message.text == "Начать осмотр":
+    if message.text in START_TEXTS:
         await start_new_inspection(message, state)
         return True
-    if message.text == "Сбросить осмотр":
+    if message.text in RESET_TEXTS:
         await reset_button(message, state)
         return True
-    if message.text == "Назад":
+    if message.text in BACK_TEXTS:
         await back_button(message, state)
         return True
-    if message.text == "Вперёд":
+    if message.text in FORWARD_TEXTS:
         await forward_button(message, state)
         return True
     return False
@@ -199,8 +212,9 @@ async def start(message: Message, state: FSMContext) -> None:
         await show_staff_menu(message, state)
         return
     await message.answer(
-        "Привет. Выберите режим работы:",
+        _accent("👋 Привет. Выберите режим работы:"),
         reply_markup=start_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -218,8 +232,8 @@ async def role_supervisor(callback: CallbackQuery, state: FSMContext) -> None:
 
 async def show_staff_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Режим сотрудника осмотра.", reply_markup=staff_idle_keyboard())
-    await message.answer("Выберите действие:", reply_markup=staff_menu_keyboard())
+    await message.answer(_accent("🧰 Режим сотрудника осмотра."), reply_markup=staff_idle_keyboard(), parse_mode="HTML")
+    await message.answer(_accent("👇 Выберите действие:"), reply_markup=staff_menu_keyboard(), parse_mode="HTML")
 
 
 async def show_supervisor_menu(message: Message, username: str | None, state: FSMContext) -> None:
@@ -227,7 +241,11 @@ async def show_supervisor_menu(message: Message, username: str | None, state: FS
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
     await state.clear()
-    await message.answer("Режим руководителя. Выберите действие:", reply_markup=supervisor_menu_keyboard())
+    await message.answer(
+        _accent("👔 Режим руководителя. Выберите действие:"),
+        reply_markup=supervisor_menu_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(Command("new_inspection"))
@@ -235,7 +253,7 @@ async def new_inspection_cmd(message: Message, state: FSMContext) -> None:
     await start_new_inspection(message, state)
 
 
-@router.message(F.text == "Начать осмотр")
+@router.message(F.text.in_(START_TEXTS))
 async def new_inspection_button(message: Message, state: FSMContext) -> None:
     await start_new_inspection(message, state)
 
@@ -292,8 +310,12 @@ async def start_new_inspection(message: Message, state: FSMContext) -> None:
     inspection_id = await _get_or_create_active(message)
     await _set_state(state, InspectionFlow.choosing_scenario)
     await state.update_data(inspection_id=inspection_id)
-    await message.answer("Рабочие кнопки осмотра закреплены ниже.", reply_markup=staff_reply_keyboard())
-    await message.answer("Выберите сценарий осмотра:", reply_markup=scenario_keyboard())
+    await message.answer(
+        _accent("🧭 Рабочие кнопки осмотра закреплены ниже."),
+        reply_markup=staff_reply_keyboard(),
+        parse_mode="HTML",
+    )
+    await message.answer(_accent("🚗 Выберите сценарий осмотра:"), reply_markup=scenario_keyboard(), parse_mode="HTML")
 
 
 async def start_tire_campaign(
@@ -308,7 +330,11 @@ async def start_tire_campaign(
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
     await state.clear()
-    await message.answer("Как включить разовую проверку резины?", reply_markup=tire_campaign_mode_keyboard())
+    await message.answer(
+        _accent("🛞 Как включить разовую проверку резины?"),
+        reply_markup=tire_campaign_mode_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("tire_campaign:"))
@@ -461,10 +487,10 @@ async def choose_scenario(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if scenario == Scenario.ACCIDENT:
         await _set_state(state, InspectionFlow.accident_guilt)
-        await callback.message.answer("Водитель виноват?", reply_markup=dtp_keyboard())
+        await callback.message.answer(_accent("🚨 Водитель виноват?"), reply_markup=dtp_keyboard(), parse_mode="HTML")
     else:
         await _set_state(state, InspectionFlow.plate_photo)
-        await callback.message.answer("Отправьте фото госномера.")
+        await callback.message.answer(_accent("📸 Отправьте фото госномера."), parse_mode="HTML")
 
 
 @router.callback_query(InspectionFlow.accident_guilt, F.data.startswith("dtp:"))
@@ -478,7 +504,7 @@ async def accident_guilt(callback: CallbackQuery, state: FSMContext) -> None:
         await repo.log_action(inspection, "DTP_GUILT", callback.from_user.id, callback.from_user.username, value)
     await callback.answer()
     await _set_state(state, InspectionFlow.plate_photo)
-    await callback.message.answer("Отправьте фото госномера.")
+    await callback.message.answer(_accent("📸 Отправьте фото госномера."), parse_mode="HTML")
 
 
 @router.message(InspectionFlow.plate_photo, F.photo)
@@ -502,16 +528,20 @@ async def plate_photo(message: Message, state: FSMContext) -> None:
         logger.info("OCR recognized plate: %s", recognized)
         await _set_state(state, InspectionFlow.plate_confirm)
         await state.update_data(ocr_plate=recognized)
-        await message.answer(f"Похоже, номер: {recognized}", reply_markup=ocr_confirm_keyboard())
+        await message.answer(
+            _accent(f"🔎 Похоже, номер: {recognized}"),
+            reply_markup=ocr_confirm_keyboard(),
+            parse_mode="HTML",
+        )
         return
     logger.info("OCR did not recognize a plate from photo")
     await _set_state(state, InspectionFlow.plate_text)
-    await message.answer("Введите госномер вручную.")
+    await message.answer(_accent("✍️ Введите госномер вручную."), parse_mode="HTML")
 
 
 @router.message(InspectionFlow.plate_photo)
 async def plate_photo_required(message: Message) -> None:
-    await message.answer("Нужно именно фото госномера. Отправьте фото.")
+    await message.answer(_accent("📸 Нужно именно фото госномера. Отправьте фото."), parse_mode="HTML")
 
 
 @router.callback_query(InspectionFlow.plate_confirm, F.data.startswith("ocr_plate:"))
@@ -522,7 +552,7 @@ async def plate_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await save_plate_and_continue(callback.message, state, data["ocr_plate"])
         return
     await _set_state(state, InspectionFlow.plate_text)
-    await callback.message.answer("Введите госномер вручную.")
+    await callback.message.answer(_accent("✍️ Введите госномер вручную."), parse_mode="HTML")
 
 
 @router.message(InspectionFlow.plate_text, F.text)
@@ -554,13 +584,17 @@ async def save_plate_and_continue(message: Message, state: FSMContext, plate_raw
     if scenario in SURRENDER_SCENARIOS:
         await _set_state(state, InspectionFlow.dashboard_photo)
         await message.answer(
-            f"Номер сохранён: {plate_norm}{hint_text}\nОтправьте фото приборной панели с уровнем топлива."
+            _accent(f"✅ Номер сохранён: {plate_norm}")
+            + escape(hint_text)
+            + "\n"
+            + _accent("⛽ Отправьте фото приборной панели с уровнем топлива."),
+            parse_mode="HTML",
         )
     elif scenario == Scenario.TIRES:
-        await message.answer(f"Номер сохранён: {plate_norm}{hint_text}")
+        await message.answer(_accent(f"✅ Номер сохранён: {plate_norm}") + escape(hint_text), parse_mode="HTML")
         await ask_tire_type(message, state)
     else:
-        await message.answer(f"Номер сохранён: {plate_norm}{hint_text}")
+        await message.answer(_accent(f"✅ Номер сохранён: {plate_norm}") + escape(hint_text), parse_mode="HTML")
         await ask_damage(message, state)
 
 
@@ -578,12 +612,12 @@ async def dashboard_photo(message: Message, state: FSMContext) -> None:
 
 @router.message(InspectionFlow.dashboard_photo)
 async def dashboard_photo_required(message: Message) -> None:
-    await message.answer("Нужно фото приборной панели, где виден уровень топлива.")
+    await message.answer(_accent("⛽ Нужно фото приборной панели, где виден уровень топлива."), parse_mode="HTML")
 
 
 async def ask_damage(message: Message, state: FSMContext) -> None:
     await _set_state(state, InspectionFlow.damage_question)
-    await message.answer("Есть повреждения?", reply_markup=yes_no_keyboard("damage"))
+    await message.answer(_accent("⚠️ Есть повреждения?"), reply_markup=yes_no_keyboard("damage"), parse_mode="HTML")
 
 
 @router.callback_query(InspectionFlow.damage_question, F.data.startswith("damage:"))
@@ -604,8 +638,9 @@ async def damage_question(callback: CallbackQuery, state: FSMContext) -> None:
     if has_damage_value:
         await _set_state(state, InspectionFlow.damage_photos)
         await callback.message.answer(
-            "Отправьте фото повреждений. Можно несколько.",
+            _accent("📸 Отправьте фото повреждений. Можно несколько."),
             reply_markup=damage_photos_keyboard(),
+            parse_mode="HTML",
         )
     else:
         await move_to_scores_or_finish(callback.message, state)
@@ -620,7 +655,11 @@ async def damage_photo(message: Message, state: FSMContext) -> None:
         inspection = await repo.get(data["inspection_id"])
         await repo.add_photo(inspection, PhotoType.DAMAGE, file_id, unique_id)
         await repo.log_action(inspection, "PHOTO_DAMAGE", message.from_user.id, message.from_user.username)
-    await message.answer("Фото добавлено. Можно отправить ещё или нажать кнопку.", reply_markup=damage_photos_keyboard())
+    await message.answer(
+        _accent("✅ Фото добавлено. Можно отправить ещё или нажать кнопку."),
+        reply_markup=damage_photos_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(InspectionFlow.damage_photos, F.data == "damage_photos_done")
@@ -634,7 +673,10 @@ async def damage_photos_done(callback: CallbackQuery, state: FSMContext) -> None
             return
     await callback.answer()
     await _set_state(state, InspectionFlow.damage_description)
-    await callback.message.answer("Опишите повреждения. Без описания завершить осмотр нельзя.")
+    await callback.message.answer(
+        _accent("📝 Опишите повреждения. Без описания завершить осмотр нельзя."),
+        parse_mode="HTML",
+    )
 
 
 @router.message(InspectionFlow.damage_description, F.text)
@@ -643,7 +685,7 @@ async def damage_description(message: Message, state: FSMContext) -> None:
         return
     text = message.text.strip()
     if not text:
-        await message.answer("Нужно описание повреждений.")
+        await message.answer(_accent("📝 Нужно описание повреждений."), parse_mode="HTML")
         return
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -673,7 +715,7 @@ async def ask_score(message: Message, state: FSMContext) -> None:
     index = data.get("score_index", 0)
     prefix, title = SCORE_FIELDS[index]
     await _set_state(state, InspectionFlow.score)
-    await message.answer(f"Оценка: {title}", reply_markup=score_keyboard(prefix))
+    await message.answer(_accent(f"⭐ Оценка: {title}"), reply_markup=score_keyboard(prefix), parse_mode="HTML")
 
 
 @router.callback_query(InspectionFlow.score, F.data.startswith("score:"))
@@ -696,7 +738,10 @@ async def score(callback: CallbackQuery, state: FSMContext) -> None:
     if score_value < 4:
         await _set_state(state, InspectionFlow.score_comment)
         await state.update_data(comment_prefix=prefix)
-        await callback.message.answer("Оценка ниже 4. Напишите комментарий по этому критерию.")
+        await callback.message.answer(
+            _accent("📝 Оценка ниже 4. Напишите комментарий по этому критерию."),
+            parse_mode="HTML",
+        )
         return
     await next_score_or_finish(callback.message, state)
 
@@ -707,7 +752,7 @@ async def score_comment(message: Message, state: FSMContext) -> None:
         return
     text = message.text.strip()
     if not text:
-        await message.answer("Комментарий обязателен для оценки ниже 4.")
+        await message.answer(_accent("📝 Комментарий обязателен для оценки ниже 4."), parse_mode="HTML")
         return
     data = await state.get_data()
     prefix = data["comment_prefix"]
@@ -739,8 +784,9 @@ async def maybe_ask_driver_remarks_or_continue(message: Message, state: FSMConte
     if should_ask:
         await _set_state(state, InspectionFlow.driver_remarks)
         await message.answer(
-            "Есть ли замечания по авто у водителя?",
+            _accent("💬 Есть ли замечания по авто у водителя?"),
             reply_markup=driver_remarks_keyboard(),
+            parse_mode="HTML",
         )
     else:
         await maybe_ask_tire_or_finish(message, state)
@@ -774,7 +820,7 @@ async def driver_remarks(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if value == "yes":
         await _set_state(state, InspectionFlow.driver_remarks_comment)
-        await callback.message.answer("Опишите замечания водителя по авто.")
+        await callback.message.answer(_accent("📝 Опишите замечания водителя по авто."), parse_mode="HTML")
         return
     await maybe_ask_tire_or_finish(callback.message, state)
 
@@ -785,7 +831,7 @@ async def driver_remarks_comment(message: Message, state: FSMContext) -> None:
         return
     text = message.text.strip()
     if not text:
-        await message.answer("Нужно описание замечаний водителя.")
+        await message.answer(_accent("📝 Нужно описание замечаний водителя."), parse_mode="HTML")
         return
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -804,7 +850,7 @@ async def driver_remarks_comment(message: Message, state: FSMContext) -> None:
 
 async def ask_tire_type(message: Message, state: FSMContext) -> None:
     await _set_state(state, InspectionFlow.tire_type)
-    await message.answer("Какая резина стоит на авто?", reply_markup=tire_type_keyboard())
+    await message.answer(_accent("🛞 Какая резина стоит на авто?"), reply_markup=tire_type_keyboard(), parse_mode="HTML")
 
 
 async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
@@ -842,7 +888,7 @@ async def tire_type(callback: CallbackQuery, state: FSMContext) -> None:
         )
     await callback.answer()
     await _set_state(state, InspectionFlow.tire_photo)
-    await callback.message.answer("Отправьте фото резины / протектора.")
+    await callback.message.answer(_accent("📸 Отправьте фото резины / протектора."), parse_mode="HTML")
 
 
 @router.message(InspectionFlow.tire_photo, F.photo)
@@ -855,12 +901,12 @@ async def tire_photo(message: Message, state: FSMContext) -> None:
         await repo.add_photo(inspection, PhotoType.TIRE, file_id, unique_id)
         await repo.log_action(inspection, "PHOTO_TIRE", message.from_user.id, message.from_user.username)
     await _set_state(state, InspectionFlow.tire_score)
-    await message.answer("Оцените состояние резины:", reply_markup=tire_score_keyboard())
+    await message.answer(_accent("⭐ Оцените состояние резины:"), reply_markup=tire_score_keyboard(), parse_mode="HTML")
 
 
 @router.message(InspectionFlow.tire_photo)
 async def tire_photo_required(message: Message) -> None:
-    await message.answer("Нужно фото резины / протектора.")
+    await message.answer(_accent("📸 Нужно фото резины / протектора."), parse_mode="HTML")
 
 
 @router.callback_query(InspectionFlow.tire_score, F.data.startswith("tire_score:"))
@@ -881,7 +927,7 @@ async def tire_score(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if score_value < 4:
         await _set_state(state, InspectionFlow.tire_comment)
-        await callback.message.answer("Оценка ниже 4. Напишите комментарий по резине.")
+        await callback.message.answer(_accent("📝 Оценка ниже 4. Напишите комментарий по резине."), parse_mode="HTML")
         return
     await finish_inspection(callback.message, state)
 
@@ -892,7 +938,7 @@ async def tire_comment(message: Message, state: FSMContext) -> None:
         return
     text = message.text.strip()
     if not text:
-        await message.answer("Комментарий обязателен для оценки резины ниже 4.")
+        await message.answer(_accent("📝 Комментарий обязателен для оценки резины ниже 4."), parse_mode="HTML")
         return
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -911,7 +957,7 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
         inspection = await repo.get(data["inspection_id"])
         errors = validate_completion(inspection)
         if errors:
-            await message.answer("Осмотр нельзя завершить:\n" + "\n".join(f"- {error}" for error in errors))
+            await message.answer("⛔ <b>Осмотр нельзя завершить:</b>\n" + "\n".join(f"- {escape(error)}" for error in errors), parse_mode="HTML")
             return
         await repo.complete(inspection)
         await repo.mark_tire_campaign_done_for_inspection(inspection)
@@ -921,14 +967,19 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
         inspection.fp_message_id = message_id
         await repo.log_action(inspection, "PUBLISH_FP", message.from_user.id, message.from_user.username)
     await state.clear()
-    await message.answer("Готово. Итог осмотра опубликован в ФП.", reply_markup=staff_idle_keyboard())
+    await message.answer(
+        _accent("✅ Готово. Итог осмотра опубликован в ФП."),
+        reply_markup=staff_idle_keyboard(),
+        parse_mode="HTML",
+    )
 
 
-@router.message(F.text == "Сбросить осмотр")
+@router.message(F.text.in_(RESET_TEXTS))
 async def reset_button(message: Message, state: FSMContext) -> None:
     await message.answer(
-        "Вы действительно хотите сбросить текущий осмотр?",
+        _accent("🛑 Вы действительно хотите сбросить текущий осмотр?"),
         reply_markup=reset_confirm_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -936,35 +987,39 @@ async def reset_button(message: Message, state: FSMContext) -> None:
 async def reset_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if callback.data.endswith(":no"):
-        await callback.message.answer("Оставил осмотр как есть.")
+        await callback.message.answer(_accent("↩️ Оставил осмотр как есть."), parse_mode="HTML")
         return
     await cancel(callback.message, state, user_id=callback.from_user.id, username=callback.from_user.username)
 
 
-@router.message(F.text == "Назад")
+@router.message(F.text.in_(BACK_TEXTS))
 async def back_button(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     previous = data.get("previous_state")
     if not previous:
-        await message.answer("Назад пока некуда.")
+        await message.answer(_accent("⬅️ Назад пока некуда."), parse_mode="HTML")
         return
     current = await state.get_state()
     await state.set_state(previous)
     await state.update_data(previous_state=None, forward_state=current)
-    await message.answer("Вернулся на предыдущий шаг.", reply_markup=staff_reply_keyboard(can_forward=True))
+    await message.answer(
+        _accent("⬅️ Вернулся на предыдущий шаг."),
+        reply_markup=staff_reply_keyboard(can_forward=True),
+        parse_mode="HTML",
+    )
 
 
-@router.message(F.text == "Вперёд")
+@router.message(F.text.in_(FORWARD_TEXTS))
 async def forward_button(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     forward = data.get("forward_state")
     if not forward:
-        await message.answer("Вперёд пока некуда.")
+        await message.answer(_accent("➡️ Вперёд пока некуда."), parse_mode="HTML")
         return
     current = await state.get_state()
     await state.set_state(forward)
     await state.update_data(previous_state=current, forward_state=None)
-    await message.answer("Вернулся вперёд.", reply_markup=staff_reply_keyboard())
+    await message.answer(_accent("➡️ Вернулся вперёд."), reply_markup=staff_reply_keyboard(), parse_mode="HTML")
 
 
 @router.message(Command("cancel"))
@@ -984,12 +1039,12 @@ async def cancel(
         repo = InspectionRepository(session)
         inspection = await repo.active_for_user(user_id)
         if inspection is None:
-            await message.answer("Активного осмотра нет.", reply_markup=staff_idle_keyboard())
+            await message.answer(_accent("ℹ️ Активного осмотра нет."), reply_markup=staff_idle_keyboard(), parse_mode="HTML")
             return
         await repo.cancel(inspection)
         await repo.log_action(inspection, "CANCEL", user_id, username)
     await state.clear()
-    await message.answer("Текущий осмотр отменён.", reply_markup=staff_idle_keyboard())
+    await message.answer(_accent("🛑 Текущий осмотр отменён."), reply_markup=staff_idle_keyboard(), parse_mode="HTML")
 
 
 @router.message(Command("my_drafts"))

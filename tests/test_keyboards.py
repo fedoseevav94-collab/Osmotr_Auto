@@ -1,4 +1,8 @@
 from app.keyboards import (
+    BACK_BUTTON,
+    FORWARD_BUTTON,
+    RESET_BUTTON,
+    START_BUTTON,
     reset_confirm_keyboard,
     driver_remarks_keyboard,
     staff_idle_keyboard,
@@ -14,45 +18,45 @@ def _inline_labels(keyboard):
 
 
 def test_start_keyboard_chooses_role():
-    assert _inline_labels(start_keyboard()) == ["Сотрудник осмотра", "Руководитель"]
+    assert _inline_labels(start_keyboard()) == ["🧰 Сотрудник осмотра", "👔 Руководитель"]
 
 
 def test_staff_menu_has_inspection_and_drafts():
-    assert _inline_labels(staff_menu_keyboard()) == ["Начать осмотр", "Мои черновики"]
+    assert _inline_labels(staff_menu_keyboard()) == [START_BUTTON, "📋 Мои черновики"]
 
 
 def test_staff_idle_keyboard_has_start_button():
     keyboard = staff_idle_keyboard()
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert labels == ["Начать осмотр"]
+    assert labels == [START_BUTTON]
 
 
 def test_supervisor_menu_has_management_actions_and_staff_mode():
     labels = _inline_labels(supervisor_menu_keyboard())
-    assert "Статистика за сегодня" in labels
-    assert "Выгрузить оценки" in labels
-    assert "Проблемные авто" in labels
-    assert "Проверка резины" in labels
-    assert "Статус кампаний" in labels
-    assert "Перейти в режим сотрудника" in labels
+    assert "📊 Статистика за сегодня" in labels
+    assert "📥 Выгрузить оценки" in labels
+    assert "⚠️ Проблемные авто" in labels
+    assert "🛞 Проверка резины" in labels
+    assert "📌 Статус кампаний" in labels
+    assert "🧰 Перейти в режим сотрудника" in labels
 
 
 def test_staff_keyboard_hides_forward_by_default():
     keyboard = staff_reply_keyboard()
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert labels == ["Сбросить осмотр", "Назад"]
+    assert labels == [RESET_BUTTON, BACK_BUTTON]
 
 
 def test_staff_keyboard_shows_forward_when_available():
     keyboard = staff_reply_keyboard(can_forward=True)
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert labels == ["Сбросить осмотр", "Назад", "Вперёд"]
+    assert labels == [RESET_BUTTON, BACK_BUTTON, FORWARD_BUTTON]
 
 
 def test_reset_requires_inline_confirmation():
     keyboard = reset_confirm_keyboard()
-    assert _inline_labels(keyboard) == ["Да, сбросить", "Нет, оставить"]
+    assert _inline_labels(keyboard) == ["🛑 Да, сбросить", "↩️ Нет, оставить"]
 
 
 def test_driver_remarks_keyboard_has_already_option():
-    assert _inline_labels(driver_remarks_keyboard()) == ["Да", "Нет", "Указал ранее"]
+    assert _inline_labels(driver_remarks_keyboard()) == ["✅ Да", "❌ Нет", "↩️ Указал ранее"]
