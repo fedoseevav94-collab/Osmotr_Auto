@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import os
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-
-logger = logging.getLogger(__name__)
 
 
 def normalize_telegram_chat_id(value: str | int) -> int:
@@ -26,7 +22,6 @@ def optional_int_env(name: str) -> int | None:
     try:
         return int(raw_value)
     except ValueError:
-        logger.warning("%s must be a numeric Telegram user ID, got %r. Ignoring it.", name, raw_value)
         return None
 
 
