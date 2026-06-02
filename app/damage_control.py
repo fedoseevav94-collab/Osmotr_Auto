@@ -177,7 +177,7 @@ async def process_due_damage_control(
                 and case.status != WAITING_CLOSE_COMMENT
             ):
                 if case.reminders_sent >= settings.max_reminders:
-                    await _escalate(bot, case, settings)
+                    await _escalate(bot, session, case, settings)
                     continue
                 case.reminders_sent += 1
                 await _send_manager_prompt(
@@ -247,6 +247,8 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
 @router.message(F.text)
 async def damage_control_message(message: Message) -> None:
     settings = _settings_from_message(message)
+    if not _same_chat(message.chat.id, settings.settings.fp_chat_id):
+        return
     text = (message.text or "").strip()
     if not text or not message.from_user:
         return
@@ -425,12 +427,6 @@ async def _send_service_amount_request(
     case: DamageControlCase,
     settings: Settings,
 ):
-    user_id = await user_id_by_username(session, settings.service_username)
-    if user_id:
-        try:
-            return await bot.send_message(chat_id=user_id, text=service_amount_request_text(case))
-        except TelegramAPIError:
-            logger.exception("Failed to send service request to @%s", settings.service_username)
     return await _send_fp_fallback(
         bot,
         case,
@@ -446,36 +442,10 @@ async def _send_manager_prompt(
     settings: Settings,
     reminder_number: int | None,
 ) -> None:
-    sent_to: list[str] = []
-    missing: list[str] = []
-    for username in active_manager_usernames(settings.manager_days_off, _local_now(settings).weekday()):
-        user_id = await user_id_by_username(session, username)
-        if not user_id:
-            missing.append(username)
-            continue
-        try:
-            await bot.send_message(
-                chat_id=user_id,
-                text=manager_prompt_text(case, inspection, settings, reminder_number, mention_override=""),
-                reply_markup=damage_control_keyboard(case.id, case.category),
-            )
-            sent_to.append(username)
-        except TelegramAPIError:
-            logger.exception("Failed to send manager prompt to @%s", username)
-            missing.append(username)
-    if sent_to:
-        return
-    fallback_mentions = " ".join(f"@{username}" for username in missing) if missing else "Менеджеры"
     await _send_fp_fallback(
         bot,
         case,
-        manager_prompt_text(
-            case,
-            inspection,
-            settings,
-            reminder_number,
-            mention_override=fallback_mentions,
-        ),
+        manager_prompt_text(case, inspection, settings, reminder_number),
         reply_markup=damage_control_keyboard(case.id, case.category),
     )
 
@@ -562,8 +532,6 @@ async def _send_fp_fallback(bot: Bot, case: DamageControlCase, text: str, reply_
 
 
 async def _send_case_followup(bot: Bot, case: DamageControlCase, text: str):
-    if case.waiting_comment_user_id:
-        return await bot.send_message(chat_id=case.waiting_comment_user_id, text=text)
     return await _send_fp_fallback(bot, case, text)
 
 
@@ -609,19 +577,26 @@ def close_summary_text(
     )
 
 
-async def _escalate(bot: Bot, case: DamageControlCase, settings: Settings) -> None:
+async def _escalate(bot: Bot, session: AsyncSession, case: DamageControlCase, settings: Settings) -> None:
     case.status = ESCALATED
     case.escalated_at = _utcnow()
     case.first_reminder_due_at = None
     plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
+    text = (
+        "Повреждение после осмотра не закрыто после 3 напоминаний.\n\n"
+        f"Авто: {plate}\n"
+        f"Статус: {case.status}"
+    )
+    supervisor_id = await user_id_by_username(session, settings.supervisor_username)
+    if supervisor_id:
+        try:
+            await bot.send_message(chat_id=supervisor_id, text=text)
+            return
+        except TelegramAPIError:
+            logger.exception("Failed to send escalation to @%s", settings.supervisor_username)
     await bot.send_message(
         chat_id=case.fp_chat_id,
-        text=(
-            f"@{settings.supervisor_username}\n\n"
-            "Повреждение после осмотра не закрыто после 3 напоминаний.\n\n"
-            f"Авто: {plate}\n"
-            f"Статус: {case.status}"
-        ),
+        text=f"@{settings.supervisor_username}\n\n{text}",
         reply_to_message_id=case.fp_message_id,
         allow_sending_without_reply=False,
     )
