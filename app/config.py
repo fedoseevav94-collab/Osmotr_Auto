@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_telegram_chat_id(value: str | int) -> int:
@@ -13,6 +17,17 @@ def normalize_telegram_chat_id(value: str | int) -> int:
     if chat_id > 0 and text.startswith("100"):
         return -chat_id
     return chat_id
+
+
+def optional_int_env(name: str) -> int | None:
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return None
+    try:
+        return int(raw_value)
+    except ValueError:
+        logger.warning("%s must be a numeric Telegram user ID, got %r. Ignoring it.", name, raw_value)
+        return None
 
 
 @dataclass(frozen=True)
@@ -33,7 +48,6 @@ class Settings:
         load_dotenv()
         data_dir = Path(os.getenv("DATA_DIR", "/app/data"))
         plates_path = os.getenv("VEHICLE_PLATES_XLSX", "").strip()
-        supervisor_telegram_id = os.getenv("SUPERVISOR_TELEGRAM_ID", "").strip()
         staff = {
             username.strip().lstrip("@").lower()
             for username in os.getenv("INSPECTION_STAFF_USERNAMES", "").split(",")
@@ -50,5 +64,5 @@ class Settings:
             plate_audit_enabled=os.getenv("PLATE_AUDIT_ENABLED", "true").strip().lower()
             not in {"0", "false", "no", "off"},
             plate_audit_hour=int(os.getenv("PLATE_AUDIT_HOUR", "4")),
-            supervisor_telegram_id=int(supervisor_telegram_id) if supervisor_telegram_id else None,
+            supervisor_telegram_id=optional_int_env("SUPERVISOR_TELEGRAM_ID"),
         )
