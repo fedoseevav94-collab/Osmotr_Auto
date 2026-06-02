@@ -266,6 +266,11 @@ async def new_inspection_button(message: Message, state: FSMContext) -> None:
     await start_new_inspection(message, state)
 
 
+@router.message(F.text.in_(RESET_TEXTS | BACK_TEXTS | FORWARD_TEXTS))
+async def inspection_control_button(message: Message, state: FSMContext) -> None:
+    await _handle_control_text(message, state)
+
+
 @router.callback_query(F.data == "new_inspection")
 async def new_inspection_cb(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
@@ -1115,7 +1120,6 @@ async def correct_plate_apply(message: Message, state: FSMContext) -> None:
     await message.answer(_accent(f"✅ Госномер исправлен на {plate_norm}."), parse_mode="HTML")
 
 
-@router.message(F.text.in_(RESET_TEXTS))
 async def reset_button(message: Message, state: FSMContext) -> None:
     await message.answer(
         _accent("🛑 Вы действительно хотите сбросить текущий осмотр?"),
@@ -1133,7 +1137,6 @@ async def reset_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await cancel(callback.message, state, user_id=callback.from_user.id, username=callback.from_user.username)
 
 
-@router.message(F.text.in_(BACK_TEXTS))
 async def back_button(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     previous = data.get("previous_state")
@@ -1150,7 +1153,6 @@ async def back_button(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text.in_(FORWARD_TEXTS))
 async def forward_button(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     forward = data.get("forward_state")
