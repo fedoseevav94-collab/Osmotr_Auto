@@ -4,6 +4,8 @@ from aiogram.fsm.state import State, StatesGroup
 class InspectionFlow(StatesGroup):
     choosing_scenario = State()
     accident_guilt = State()
+    plate_digits = State()
+    plate_select = State()
     plate_photo = State()
     plate_confirm = State()
     plate_text = State()
@@ -29,3 +31,7 @@ class ExportFlow(StatesGroup):
 
 class TireCampaignFlow(StatesGroup):
     waiting_list_file = State()
+
+
+class CorrectionFlow(StatesGroup):
+    plate_text = State()

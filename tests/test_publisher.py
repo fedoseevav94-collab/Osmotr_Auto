@@ -83,6 +83,7 @@ async def test_publish_uses_send_methods_not_forward():
     )
     bot = FakeBot()
     message_id = await publish_to_fp(bot, inspection, 1001905865504)
-    assert message_id == 11
+    assert message_id == 13
     assert bot.calls[0][0] == "send_media_group"
+    assert bot.calls[1][0] == "send_message"
     assert all(call[0] != "forward_message" for call in bot.calls)

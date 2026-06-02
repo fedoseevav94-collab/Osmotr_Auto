@@ -127,6 +127,15 @@ class InspectionRepository:
         query = select(KnownVehiclePlate.plate_normalized)
         return list(await self.session.scalars(query))
 
+    async def search_known_plates_by_digits(self, digits: str, limit: int = 12) -> list[KnownVehiclePlate]:
+        query = (
+            select(KnownVehiclePlate)
+            .where(KnownVehiclePlate.plate_normalized.like(f"_{digits}%"))
+            .order_by(KnownVehiclePlate.plate_normalized)
+            .limit(limit)
+        )
+        return list(await self.session.scalars(query))
+
     async def upsert_known_plate(
         self,
         plate_raw: str,

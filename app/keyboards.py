@@ -190,6 +190,26 @@ def ocr_confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def plate_choices_keyboard(plates) -> InlineKeyboardMarkup:
+    rows = []
+    for plate in plates:
+        details = " ".join(part for part in (plate.brand, plate.model) if part)
+        label = f"🚘 {plate.plate_normalized}"
+        if details:
+            label += f" · {details}"
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"plate_select:{plate.plate_normalized}")])
+    rows.append([InlineKeyboardButton(text="✍️ Ввести номер вручную", callback_data="plate_select:manual")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def plate_correction_keyboard(inspection_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Исправить госномер", callback_data=f"correct_plate:{inspection_id}")]
+        ]
+    )
+
+
 def tire_campaign_mode_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

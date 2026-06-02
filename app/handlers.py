@@ -32,6 +32,8 @@ from app.keyboards import (
     driver_remarks_keyboard,
     dtp_keyboard,
     export_period_keyboard,
+    plate_choices_keyboard,
+    plate_correction_keyboard,
     problem_period_keyboard,
     reset_confirm_keyboard,
     scenario_keyboard,
@@ -41,16 +43,14 @@ from app.keyboards import (
     start_keyboard,
     staff_reply_keyboard,
     supervisor_menu_keyboard,
-    ocr_confirm_keyboard,
     tire_campaign_mode_keyboard,
     tire_score_keyboard,
     tire_type_keyboard,
     yes_no_keyboard,
 )
-from app.ocr import recognize_plate_from_image
-from app.publisher import publish_to_fp
+from app.publisher import build_summary, publish_to_fp
 from app.repository import InspectionRepository
-from app.states import ExportFlow, InspectionFlow, TireCampaignFlow
+from app.states import CorrectionFlow, ExportFlow, InspectionFlow, TireCampaignFlow
 from app.utils import is_supervisor, normalize_plate
 from app.validation import has_photo, validate_completion
 from app.vehicle_registry import plate_hint, read_vehicle_rows
@@ -111,10 +111,10 @@ def _draft_next_step(inspection):
     scenario = Scenario(inspection.scenario)
     if scenario == Scenario.ACCIDENT and not inspection.dtp_driver_guilty:
         return InspectionFlow.accident_guilt, "Водитель виноват?", {}, dtp_keyboard()
+    if not inspection.plate_normalized:
+        return InspectionFlow.plate_digits, "Введите 3 цифры госномера.", {}, None
     if not has_photo(inspection, PhotoType.PLATE):
         return InspectionFlow.plate_photo, "Отправьте фото госномера.", {}, None
-    if not inspection.plate_normalized:
-        return InspectionFlow.plate_text, "Введите госномер вручную.", {}, None
     if scenario in SURRENDER_SCENARIOS and not has_photo(inspection, PhotoType.DASHBOARD):
         return InspectionFlow.dashboard_photo, "Отправьте фото приборной панели с уровнем топлива.", {}, None
     if inspection.has_damage is None:
@@ -513,12 +513,7 @@ async def choose_scenario(callback: CallbackQuery, state: FSMContext) -> None:
             parse_mode="HTML",
         )
     else:
-        await _set_state(state, InspectionFlow.plate_photo)
-        await callback.message.answer(
-            _accent("📸 Отправьте фото госномера."),
-            reply_markup=staff_reply_keyboard(),
-            parse_mode="HTML",
-        )
+        await ask_plate_digits(callback.message, state)
 
 
 @router.callback_query(InspectionFlow.accident_guilt, F.data.startswith("dtp:"))
@@ -531,9 +526,61 @@ async def accident_guilt(callback: CallbackQuery, state: FSMContext) -> None:
         inspection.dtp_driver_guilty = value
         await repo.log_action(inspection, "DTP_GUILT", callback.from_user.id, callback.from_user.username, value)
     await callback.answer()
+    await ask_plate_digits(callback.message, state)
+
+
+async def ask_plate_digits(message: Message, state: FSMContext) -> None:
+    await _set_state(state, InspectionFlow.plate_digits)
+    await message.answer(
+        _accent("🔢 Введите 3 цифры госномера.")
+        + "\nНапример, для <b>О864ОО797</b> введите <b>864</b>.",
+        reply_markup=staff_reply_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+@router.message(InspectionFlow.plate_digits, F.text)
+async def plate_digits(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
+    digits = "".join(char for char in message.text if char.isdigit())
+    if len(digits) != 3:
+        await message.answer(_accent("🔢 Нужно ввести ровно 3 цифры номера."), parse_mode="HTML")
+        return
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        matches = await repo.search_known_plates_by_digits(digits)
+    if matches:
+        await _set_state(state, InspectionFlow.plate_select)
+        await message.answer(
+            _accent(f"🚘 Нашёл номера с цифрами {digits}. Выберите нужный:"),
+            reply_markup=plate_choices_keyboard(matches),
+            parse_mode="HTML",
+        )
+        return
+    await _set_state(state, InspectionFlow.plate_text)
+    await message.answer(
+        _accent("🚘 В базе нет номера с такими цифрами. Введите госномер полностью."),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(InspectionFlow.plate_select, F.data.startswith("plate_select:"))
+async def plate_select(callback: CallbackQuery, state: FSMContext) -> None:
+    value = callback.data.split(":", 1)[1]
+    await callback.answer()
+    if value == "manual":
+        await _set_state(state, InspectionFlow.plate_text)
+        await callback.message.answer(_accent("✍️ Введите госномер полностью."), parse_mode="HTML")
+        return
+    await save_plate(callback.message, state, value, user_id=callback.from_user.id, username=callback.from_user.username)
+    await ask_plate_photo(callback.message, state)
+
+
+async def ask_plate_photo(message: Message, state: FSMContext) -> None:
     await _set_state(state, InspectionFlow.plate_photo)
-    await callback.message.answer(
-        _accent("📸 Отправьте фото госномера."),
+    await message.answer(
+        _accent("📸 Теперь отправьте фото госномера для отчёта."),
         reply_markup=staff_reply_keyboard(),
         parse_mode="HTML",
     )
@@ -548,27 +595,7 @@ async def plate_photo(message: Message, state: FSMContext) -> None:
         inspection = await repo.get(data["inspection_id"])
         await repo.add_photo(inspection, PhotoType.PLATE, file_id, unique_id)
         await repo.log_action(inspection, "PHOTO_PLATE", message.from_user.id, message.from_user.username)
-    photo_path = _settings().data_dir / "ocr" / f"plate_{message.from_user.id}_{unique_id}.jpg"
-    photo_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        await message.bot.download(message.photo[-1], destination=photo_path)
-    except Exception as exc:
-        logger.warning("Failed to download plate photo for OCR: %s", exc)
-        photo_path = None
-    recognized = recognize_plate_from_image(photo_path) if photo_path else None
-    if recognized:
-        logger.info("OCR recognized plate: %s", recognized)
-        await _set_state(state, InspectionFlow.plate_confirm)
-        await state.update_data(ocr_plate=recognized)
-        await message.answer(
-            _accent(f"🔎 Похоже, номер: {recognized}"),
-            reply_markup=ocr_confirm_keyboard(),
-            parse_mode="HTML",
-        )
-        return
-    logger.info("OCR did not recognize a plate from photo")
-    await _set_state(state, InspectionFlow.plate_text)
-    await message.answer(_accent("✍️ Введите госномер вручную."), reply_markup=staff_reply_keyboard(), parse_mode="HTML")
+    await continue_after_plate_photo(message, state)
 
 
 @router.message(InspectionFlow.plate_photo)
@@ -580,39 +607,32 @@ async def plate_photo_required(message: Message) -> None:
     )
 
 
-@router.callback_query(InspectionFlow.plate_confirm, F.data.startswith("ocr_plate:"))
-async def plate_confirm(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    await callback.answer()
-    if callback.data.endswith(":yes"):
-        await save_plate_and_continue(callback.message, state, data["ocr_plate"])
-        return
-    await _set_state(state, InspectionFlow.plate_text)
-    await callback.message.answer(
-        _accent("✍️ Введите госномер вручную."),
-        reply_markup=staff_reply_keyboard(),
-        parse_mode="HTML",
-    )
-
-
 @router.message(InspectionFlow.plate_text, F.text)
 async def plate_text(message: Message, state: FSMContext) -> None:
     if await _handle_control_text(message, state):
         return
-    await save_plate_and_continue(message, state, message.text.strip())
+    await save_plate(message, state, message.text.strip())
+    await ask_plate_photo(message, state)
 
 
-async def save_plate_and_continue(message: Message, state: FSMContext, plate_raw: str) -> None:
+async def save_plate(
+    message: Message,
+    state: FSMContext,
+    plate_raw: str,
+    user_id: int | None = None,
+    username: str | None = None,
+) -> None:
     plate_norm = normalize_plate(plate_raw)
+    user_id = user_id if user_id is not None else message.from_user.id
+    username = username if username is not None else message.from_user.username
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
         inspection.plate_raw = plate_raw
         inspection.plate_normalized = plate_norm
-        scenario = Scenario(inspection.scenario)
         hint = await plate_hint(session, plate_norm)
-        await repo.log_action(inspection, "PLATE", message.from_user.id, message.from_user.username, plate_norm)
+        await repo.log_action(inspection, "PLATE", user_id, username, plate_norm)
 
     if hint is None:
         hint_text = "\nНомер не найден в текущей базе, но я принял его как новый."
@@ -621,20 +641,24 @@ async def save_plate_and_continue(message: Message, state: FSMContext, plate_raw
     else:
         hint_text = f"\nНомер принят. Ближайшая подсказка из базы: {hint.plate_normalized}"
 
+    await message.answer(_accent(f"✅ Номер выбран: {plate_norm}") + escape(hint_text), parse_mode="HTML")
+
+
+async def continue_after_plate_photo(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        inspection = await repo.get(data["inspection_id"])
+        scenario = Scenario(inspection.scenario)
     if scenario in SURRENDER_SCENARIOS:
         await _set_state(state, InspectionFlow.dashboard_photo)
         await message.answer(
-            _accent(f"✅ Номер сохранён: {plate_norm}")
-            + escape(hint_text)
-            + "\n"
-            + _accent("⛽ Отправьте фото приборной панели с уровнем топлива."),
+            _accent("⛽ Отправьте фото приборной панели с уровнем топлива."),
             parse_mode="HTML",
         )
     elif scenario == Scenario.TIRES:
-        await message.answer(_accent(f"✅ Номер сохранён: {plate_norm}") + escape(hint_text), parse_mode="HTML")
         await ask_tire_type(message, state)
     else:
-        await message.answer(_accent(f"✅ Номер сохранён: {plate_norm}") + escape(hint_text), parse_mode="HTML")
         await ask_damage(message, state)
 
 
@@ -1012,6 +1036,77 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
         reply_markup=staff_idle_keyboard(),
         parse_mode="HTML",
     )
+
+
+@router.callback_query(F.data.startswith("correct_plate:"))
+async def correct_plate_start(callback: CallbackQuery, state: FSMContext) -> None:
+    inspection_id = int(callback.data.split(":", 1)[1])
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        inspection = await repo.get(inspection_id)
+        if inspection is None:
+            await callback.answer("Осмотр не найден.", show_alert=True)
+            return
+        allowed = callback.from_user.id == inspection.telegram_user_id or is_supervisor(
+            callback.from_user.username,
+            _settings().supervisor_username,
+        )
+    if not allowed:
+        await callback.answer("Исправить номер может только автор отчёта или руководитель.", show_alert=True)
+        return
+    await callback.answer()
+    await state.clear()
+    await state.set_state(CorrectionFlow.plate_text)
+    await state.update_data(correct_inspection_id=inspection_id)
+    await callback.message.answer(
+        _accent("✏️ Введите правильный госномер одним сообщением."),
+        parse_mode="HTML",
+    )
+
+
+@router.message(CorrectionFlow.plate_text, F.text)
+async def correct_plate_apply(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    inspection_id = data.get("correct_inspection_id")
+    plate_raw = message.text.strip()
+    plate_norm = normalize_plate(plate_raw)
+    if not plate_norm:
+        await message.answer(_accent("✏️ Введите госномер текстом."), parse_mode="HTML")
+        return
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        inspection = await repo.get(inspection_id)
+        if inspection is None:
+            await message.answer(_accent("Осмотр не найден."), parse_mode="HTML")
+            await state.clear()
+            return
+        allowed = message.from_user.id == inspection.telegram_user_id or is_supervisor(
+            message.from_user.username,
+            _settings().supervisor_username,
+        )
+        if not allowed:
+            await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+            await state.clear()
+            return
+        inspection.plate_raw = plate_raw
+        inspection.plate_normalized = plate_norm
+        await repo.log_action(inspection, "CORRECT_PLATE", message.from_user.id, message.from_user.username, plate_norm)
+        await session.flush()
+        summary = build_summary(inspection)
+        fp_chat_id = inspection.fp_chat_id
+        fp_message_id = inspection.fp_message_id
+    if fp_chat_id and fp_message_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=fp_chat_id,
+                message_id=fp_message_id,
+                text=summary,
+                reply_markup=plate_correction_keyboard(inspection_id),
+            )
+        except Exception as exc:
+            logger.warning("Failed to edit FP message after plate correction: %s", exc)
+    await state.clear()
+    await message.answer(_accent(f"✅ Госномер исправлен на {plate_norm}."), parse_mode="HTML")
 
 
 @router.message(F.text.in_(RESET_TEXTS))

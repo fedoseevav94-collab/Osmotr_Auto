@@ -6,6 +6,7 @@ from aiogram import Bot
 from aiogram.types import InputMediaPhoto, Message
 
 from app.constants import DTP_LABELS, PhotoType, SCENARIO_MARKERS, SCORE_FIELDS, TIRE_TYPES, Scenario
+from app.keyboards import plate_correction_keyboard
 from app.models import InspectionSession
 from app.utils import user_display
 
@@ -83,22 +84,17 @@ async def publish_to_fp(bot: Bot, inspection: InspectionSession, fp_chat_id: int
         in {PhotoType.PLATE.value, PhotoType.DASHBOARD.value, PhotoType.DAMAGE.value, PhotoType.TIRE.value}
     ]
 
-    message: Message | None = None
     if len(media_photos) == 1:
-        message = await bot.send_photo(
+        await bot.send_photo(
             chat_id=fp_chat_id,
             photo=media_photos[0].telegram_file_id,
-            caption=summary[:1024],
         )
-        if len(summary) > 1024:
-            message = await bot.send_message(chat_id=fp_chat_id, text=summary)
     elif len(media_photos) > 1:
         media = [InputMediaPhoto(media=photo.telegram_file_id) for photo in media_photos]
-        media[0].caption = summary[:1024]
-        messages = await bot.send_media_group(chat_id=fp_chat_id, media=media)
-        message = messages[0] if messages else None
-        if len(summary) > 1024:
-            message = await bot.send_message(chat_id=fp_chat_id, text=summary)
-    else:
-        message = await bot.send_message(chat_id=fp_chat_id, text=summary)
+        await bot.send_media_group(chat_id=fp_chat_id, media=media)
+    message = await bot.send_message(
+        chat_id=fp_chat_id,
+        text=summary,
+        reply_markup=plate_correction_keyboard(inspection.id),
+    )
     return message.message_id if message else None
