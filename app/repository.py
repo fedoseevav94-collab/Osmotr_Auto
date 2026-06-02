@@ -315,6 +315,19 @@ class InspectionRepository:
         )
         return list(await self.session.scalars(query))
 
+    async def completed_with_photos_between(self, start: datetime, end: datetime) -> list[InspectionSession]:
+        query = (
+            select(InspectionSession)
+            .where(
+                InspectionSession.status == SessionStatus.COMPLETED.value,
+                InspectionSession.completed_at >= start,
+                InspectionSession.completed_at < end,
+            )
+            .order_by(desc(InspectionSession.completed_at), desc(InspectionSession.id))
+            .options(selectinload(InspectionSession.photos))
+        )
+        return list(await self.session.scalars(query))
+
     async def stats_between(self, start: datetime, end: datetime) -> dict[str, int]:
         rows = await self._completed_between(start, end)
         return {

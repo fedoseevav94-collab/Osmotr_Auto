@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -9,6 +10,7 @@ from app.config import Settings
 from app.db import init_db, make_engine, make_sessionmaker
 from app.handlers import register_handlers, setup_router
 from app.db import session_scope
+from app.plate_audit import run_plate_audit_scheduler
 from app.vehicle_registry import import_vehicle_registry
 
 
@@ -30,7 +32,13 @@ async def main() -> None:
     dp = Dispatcher()
     setup_router(settings, sessionmaker)
     register_handlers(dp)
-    await dp.start_polling(bot)
+    audit_task = asyncio.create_task(run_plate_audit_scheduler(bot, sessionmaker, settings))
+    try:
+        await dp.start_polling(bot)
+    finally:
+        audit_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await audit_task
 
 
 if __name__ == "__main__":

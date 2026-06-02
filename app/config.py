@@ -24,12 +24,16 @@ class Settings:
     inspection_staff_usernames: set[str]
     data_dir: Path
     vehicle_plates_xlsx: Path | None
+    plate_audit_enabled: bool = True
+    plate_audit_hour: int = 4
+    plate_audit_chat_id: int | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
         data_dir = Path(os.getenv("DATA_DIR", "/app/data"))
         plates_path = os.getenv("VEHICLE_PLATES_XLSX", "").strip()
+        audit_chat_id = os.getenv("PLATE_AUDIT_CHAT_ID", "").strip()
         staff = {
             username.strip().lstrip("@").lower()
             for username in os.getenv("INSPECTION_STAFF_USERNAMES", "").split(",")
@@ -43,4 +47,8 @@ class Settings:
             inspection_staff_usernames=staff,
             data_dir=data_dir,
             vehicle_plates_xlsx=Path(plates_path) if plates_path else None,
+            plate_audit_enabled=os.getenv("PLATE_AUDIT_ENABLED", "true").strip().lower()
+            not in {"0", "false", "no", "off"},
+            plate_audit_hour=int(os.getenv("PLATE_AUDIT_HOUR", "4")),
+            plate_audit_chat_id=normalize_telegram_chat_id(audit_chat_id) if audit_chat_id else None,
         )
