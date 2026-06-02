@@ -5,6 +5,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 from app.constants import STANDARD_SCENARIOS, Scenario, TIRE_TYPES
 
 START_BUTTON = "🚗 Начать осмотр"
+START_COMMAND_BUTTON = "/start"
 RESET_BUTTON = "🛑 Сбросить осмотр"
 BACK_BUTTON = "⬅️ Назад"
 FORWARD_BUTTON = "➡️ Вперёд"
@@ -38,7 +39,10 @@ def staff_menu_keyboard() -> InlineKeyboardMarkup:
 
 def staff_idle_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=START_BUTTON)]],
+        keyboard=[
+            [KeyboardButton(text=START_BUTTON)],
+            [KeyboardButton(text=START_COMMAND_BUTTON)],
+        ],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -65,7 +69,10 @@ def staff_reply_keyboard(can_forward: bool = False) -> ReplyKeyboardMarkup:
     if can_forward:
         buttons.append(KeyboardButton(text=FORWARD_BUTTON))
     return ReplyKeyboardMarkup(
-        keyboard=[buttons],
+        keyboard=[
+            buttons,
+            [KeyboardButton(text=START_COMMAND_BUTTON)],
+        ],
         resize_keyboard=True,
         is_persistent=True,
     )

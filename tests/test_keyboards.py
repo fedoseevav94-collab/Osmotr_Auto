@@ -3,6 +3,7 @@ from app.keyboards import (
     FORWARD_BUTTON,
     RESET_BUTTON,
     START_BUTTON,
+    START_COMMAND_BUTTON,
     reset_confirm_keyboard,
     driver_remarks_keyboard,
     scenario_keyboard,
@@ -39,7 +40,7 @@ def test_scenario_keyboard_has_distinct_icons():
 def test_staff_idle_keyboard_has_start_button():
     keyboard = staff_idle_keyboard()
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert labels == [START_BUTTON]
+    assert labels == [START_BUTTON, START_COMMAND_BUTTON]
 
 
 def test_supervisor_menu_has_management_actions_and_staff_mode():
@@ -55,13 +56,13 @@ def test_supervisor_menu_has_management_actions_and_staff_mode():
 def test_staff_keyboard_hides_forward_by_default():
     keyboard = staff_reply_keyboard()
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert labels == [RESET_BUTTON, BACK_BUTTON]
+    assert labels == [RESET_BUTTON, BACK_BUTTON, START_COMMAND_BUTTON]
 
 
 def test_staff_keyboard_shows_forward_when_available():
     keyboard = staff_reply_keyboard(can_forward=True)
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert labels == [RESET_BUTTON, BACK_BUTTON, FORWARD_BUTTON]
+    assert labels == [RESET_BUTTON, BACK_BUTTON, FORWARD_BUTTON, START_COMMAND_BUTTON]
 
 
 def test_reset_requires_inline_confirmation():
