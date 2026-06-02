@@ -93,6 +93,16 @@ class KnownVehiclePlate(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class BotUser(Base):
+    __tablename__ = "bot_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    telegram_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class TireCheckCampaign(Base):
     __tablename__ = "tire_check_campaigns"
 
@@ -139,6 +149,7 @@ class DamageControlCase(Base):
     first_reminder_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_reminder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     service_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    service_request_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     service_request_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     service_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     service_reminder_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

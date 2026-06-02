@@ -51,6 +51,12 @@ async def init_db(engine: AsyncEngine) -> None:
                 await conn.execute(
                     text("ALTER TABLE tire_check_campaign_plates ADD COLUMN inspection_id INTEGER")
                 )
+            rows = await conn.execute(text("PRAGMA table_info(damage_control_cases)"))
+            damage_control_columns = {row[1] for row in rows}
+            if damage_control_columns and "service_request_chat_id" not in damage_control_columns:
+                await conn.execute(
+                    text("ALTER TABLE damage_control_cases ADD COLUMN service_request_chat_id INTEGER")
+                )
 
 
 @asynccontextmanager

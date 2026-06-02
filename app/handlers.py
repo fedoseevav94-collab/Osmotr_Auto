@@ -349,6 +349,7 @@ async def _create_new_session(message: Message) -> int:
 
 @router.message(Command("start", "help"))
 async def start(message: Message, state: FSMContext) -> None:
+    await _remember_bot_user(message)
     await state.clear()
     if _start_mode_for_user(message.from_user.username) == "staff":
         await show_staff_menu(message, state)
@@ -358,6 +359,18 @@ async def start(message: Message, state: FSMContext) -> None:
         reply_markup=start_keyboard(),
         parse_mode="HTML",
     )
+
+
+async def _remember_bot_user(message: Message) -> None:
+    if not message.from_user:
+        return
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        await repo.remember_bot_user(
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.full_name,
+        )
 
 
 @router.callback_query(F.data == "role:staff")

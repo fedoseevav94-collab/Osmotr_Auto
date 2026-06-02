@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.constants import PROBLEM_SCORE_THRESHOLD, PhotoType, SessionStatus
 from app.models import (
+    BotUser,
     InspectionAction,
     InspectionPhoto,
     InspectionSession,
@@ -140,6 +141,15 @@ class InspectionRepository:
         normalized = username.strip().lstrip("@").lower()
         if not normalized:
             return None
+        user_query = (
+            select(BotUser.telegram_user_id)
+            .where(func.lower(BotUser.telegram_username) == normalized)
+            .order_by(desc(BotUser.updated_at), desc(BotUser.id))
+            .limit(1)
+        )
+        bot_user_id = await self.session.scalar(user_query)
+        if bot_user_id is not None:
+            return bot_user_id
         action_query = (
             select(InspectionAction.telegram_user_id)
             .where(func.lower(InspectionAction.telegram_username) == normalized)
@@ -156,6 +166,21 @@ class InspectionRepository:
             .limit(1)
         )
         return await self.session.scalar(inspection_query)
+
+    async def remember_bot_user(
+        self,
+        user_id: int,
+        username: str | None,
+        name: str | None,
+    ) -> BotUser:
+        user = await self.session.scalar(select(BotUser).where(BotUser.telegram_user_id == user_id))
+        if user is None:
+            user = BotUser(telegram_user_id=user_id)
+            self.session.add(user)
+        user.telegram_username = username.strip().lstrip("@") if username else None
+        user.telegram_name = name
+        await self.session.flush()
+        return user
 
     async def upsert_known_plate(
         self,

@@ -8,15 +8,16 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from app.config import Settings
 from app.constants import Scenario
 from app.db import session_scope
-from app.models import DamageControlCase, InspectionSession
+from app.models import BotUser, DamageControlCase, InspectionSession
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -121,14 +122,16 @@ async def start_damage_control_for_inspection(
     await session.flush()
 
     if category == CHARGE_REQUIRED:
-        service_message_id = await _send_service_amount_request(bot, case, settings)
+        service_message = await _send_service_amount_request(bot, session, case, settings)
         case.service_requested_at = now
-        case.service_request_message_id = service_message_id
+        if service_message:
+            case.service_request_chat_id = service_message.chat.id
+            case.service_request_message_id = service_message.message_id
         case.service_reminder_due_at = now + timedelta(
             minutes=settings.service_amount_reminder_interval_minutes
         )
 
-    await _send_manager_prompt(bot, case, inspection, settings, reminder_number=None)
+    await _send_manager_prompt(bot, session, case, inspection, settings, reminder_number=None)
     await session.flush()
     return case
 
@@ -160,9 +163,11 @@ async def process_due_damage_control(
             if case.status in FINAL_STATUSES:
                 continue
             if case.service_reminder_due_at and case.service_reminder_due_at <= now and not case.service_received_at:
-                service_message_id = await _send_service_amount_request(bot, case, settings)
+                service_message = await _send_service_amount_request(bot, session, case, settings)
                 case.service_requested_at = now
-                case.service_request_message_id = service_message_id
+                if service_message:
+                    case.service_request_chat_id = service_message.chat.id
+                    case.service_request_message_id = service_message.message_id
                 case.service_reminder_due_at = now + timedelta(
                     minutes=settings.service_amount_reminder_interval_minutes
                 )
@@ -177,6 +182,7 @@ async def process_due_damage_control(
                 case.reminders_sent += 1
                 await _send_manager_prompt(
                     bot,
+                    session,
                     case,
                     case.inspection,
                     settings,
@@ -202,7 +208,7 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
             .options(selectinload(DamageControlCase.inspection))
         )
         if not case or case.status in FINAL_STATUSES:
-            await callback.answer("Кейс уже закрыт или не найден.", show_alert=True)
+            await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
         if action == "pay":
             case.status = WAITING_CLOSE_COMMENT
@@ -241,8 +247,6 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
 @router.message(F.text)
 async def damage_control_message(message: Message) -> None:
     settings = _settings_from_message(message)
-    if not _same_chat(message.chat.id, settings.settings.fp_chat_id):
-        return
     text = (message.text or "").strip()
     if not text or not message.from_user:
         return
@@ -269,7 +273,7 @@ async def damage_control_message(message: Message) -> None:
             await message.bot.send_message(
                 chat_id=message.chat.id,
                 text=(
-                    "Комментарий не закрывает кейс. Нужна оплата/списание/рассрочка/офис/"
+                    "Комментарий не закрывает осмотр. Нужна оплата/списание/рассрочка/офис/"
                     "причина без списания."
                 ),
                 reply_to_message_id=message.message_id,
@@ -328,10 +332,18 @@ def manager_prompt_text(
     inspection: InspectionSession,
     settings: Settings,
     reminder_number: int | None = None,
+    mention_override: str | None = None,
 ) -> str:
-    mentions = active_manager_mentions(settings.manager_days_off, _local_now(settings).weekday())
+    mentions = (
+        mention_override
+        if mention_override is not None
+        else active_manager_mentions(settings.manager_days_off, _local_now(settings).weekday())
+    )
     plate = case.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "без номера"
-    lines = [mentions, "", f"Найдены повреждения по авто {plate}."]
+    lines = []
+    if mentions:
+        lines += [mentions, ""]
+    lines.append(f"Найдены повреждения по авто {plate}.")
     if case.category == NO_CHARGE_REQUIRED:
         lines.append("В отчете указано, что водитель не виноват. Подтвердите проверку без списания.")
     else:
@@ -342,19 +354,24 @@ def manager_prompt_text(
     return "\n".join(lines)
 
 
-def service_amount_request_text(settings: Settings) -> str:
+def service_amount_request_text(case: DamageControlCase) -> str:
+    plate = case.plate_normalized or "без номера"
     return (
-        f"@{settings.service_username} нужна оценка/сумма по повреждению.\n"
-        "Ответьте reply к этому сообщению или к исходному ФП-сообщению."
+        f"Нужна оценка/сумма по повреждению авто {plate}.\n"
+        "Ответьте reply к этому сообщению."
     )
 
 
 def active_manager_mentions(raw_days_off: str, weekday: int) -> str:
+    usernames = active_manager_usernames(raw_days_off, weekday)
+    return " ".join(f"@{username}" for username in usernames) if usernames else "Менеджеры"
+
+
+def active_manager_usernames(raw_days_off: str, weekday: int) -> list[str]:
     days_off = parse_manager_days_off(raw_days_off)
     if not days_off:
-        return "@pagorodu @Wuggfi @lalalas19 @serb_98"
-    mentions = [f"@{username}" for username, off_days in days_off.items() if weekday not in off_days]
-    return " ".join(mentions) if mentions else "Менеджеры"
+        return ["pagorodu", "Wuggfi", "lalalas19", "serb_98"]
+    return [username for username, off_days in days_off.items() if weekday not in off_days]
 
 
 def parse_manager_days_off(raw: str) -> dict[str, set[int]]:
@@ -402,37 +419,73 @@ def _first_due_at(created_at: datetime, delay_minutes: int, settings: Settings) 
     ).replace(tzinfo=None)
 
 
-async def _send_service_amount_request(bot: Bot, case: DamageControlCase, settings: Settings) -> int:
-    message = await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=service_amount_request_text(settings),
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
+async def _send_service_amount_request(
+    bot: Bot,
+    session: AsyncSession,
+    case: DamageControlCase,
+    settings: Settings,
+):
+    user_id = await user_id_by_username(session, settings.service_username)
+    if user_id:
+        try:
+            return await bot.send_message(chat_id=user_id, text=service_amount_request_text(case))
+        except TelegramAPIError:
+            logger.exception("Failed to send service request to @%s", settings.service_username)
+    return await _send_fp_fallback(
+        bot,
+        case,
+        f"@{settings.service_username} нужна оценка/сумма по повреждению. Ответьте reply к этому сообщению.",
     )
-    return message.message_id
 
 
 async def _send_manager_prompt(
     bot: Bot,
+    session: AsyncSession,
     case: DamageControlCase,
     inspection: InspectionSession,
     settings: Settings,
     reminder_number: int | None,
 ) -> None:
-    await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=manager_prompt_text(case, inspection, settings, reminder_number),
+    sent_to: list[str] = []
+    missing: list[str] = []
+    for username in active_manager_usernames(settings.manager_days_off, _local_now(settings).weekday()):
+        user_id = await user_id_by_username(session, username)
+        if not user_id:
+            missing.append(username)
+            continue
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=manager_prompt_text(case, inspection, settings, reminder_number, mention_override=""),
+                reply_markup=damage_control_keyboard(case.id, case.category),
+            )
+            sent_to.append(username)
+        except TelegramAPIError:
+            logger.exception("Failed to send manager prompt to @%s", username)
+            missing.append(username)
+    if sent_to:
+        return
+    fallback_mentions = " ".join(f"@{username}" for username in missing) if missing else "Менеджеры"
+    await _send_fp_fallback(
+        bot,
+        case,
+        manager_prompt_text(
+            case,
+            inspection,
+            settings,
+            reminder_number,
+            mention_override=fallback_mentions,
+        ),
         reply_markup=damage_control_keyboard(case.id, case.category),
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
     )
 
 
 async def _ask_close_comment(bot: Bot, case: DamageControlCase, username: str | None) -> None:
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
-    await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=(
+    await _send_case_followup(
+        bot,
+        case,
+        (
             f"{mention}, напишите комментарий по закрытию.\n\n"
             "Примеры:\n"
             "— оплатил 20000 наличными\n"
@@ -441,24 +494,21 @@ async def _ask_close_comment(bot: Bot, case: DamageControlCase, username: str | 
             "— передано в офис\n"
             "— списание не требуется, причина"
         ),
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
     )
 
 
 async def _ask_no_charge_comment(bot: Bot, case: DamageControlCase, username: str | None) -> None:
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
-    await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=(
+    await _send_case_followup(
+        bot,
+        case,
+        (
             f"{mention}, напишите причину без списания.\n\n"
             "Примеры:\n"
             "— списание не требуется, причина: повреждение старое\n"
             "— без списания, причина: повреждение уже было\n"
             "— передано в офис"
         ),
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
     )
 
 
@@ -468,7 +518,10 @@ async def _record_service_response(session: AsyncSession, message: Message, text
         case = await session.scalar(
             select(DamageControlCase)
             .where(
-                DamageControlCase.fp_chat_id == message.chat.id,
+                (
+                    (DamageControlCase.fp_chat_id == message.chat.id)
+                    | (DamageControlCase.service_request_chat_id == message.chat.id)
+                ),
                 (
                     (DamageControlCase.fp_message_id == message.reply_to_message.message_id)
                     | (DamageControlCase.service_request_message_id == message.reply_to_message.message_id)
@@ -484,6 +537,34 @@ async def _record_service_response(session: AsyncSession, message: Message, text
         case.status = SERVICE_AMOUNT_RECEIVED
     logger.info("Service amount response for inspection damage case %s: %s", case.id, text)
     return True
+
+
+async def user_id_by_username(session: AsyncSession, username: str | None) -> int | None:
+    normalized = (username or "").strip().lstrip("@").lower()
+    if not normalized:
+        return None
+    return await session.scalar(
+        select(BotUser.telegram_user_id)
+        .where(func.lower(BotUser.telegram_username) == normalized)
+        .order_by(BotUser.updated_at.desc(), BotUser.id.desc())
+        .limit(1)
+    )
+
+
+async def _send_fp_fallback(bot: Bot, case: DamageControlCase, text: str, reply_markup=None):
+    return await bot.send_message(
+        chat_id=case.fp_chat_id,
+        text=text,
+        reply_markup=reply_markup,
+        reply_to_message_id=case.fp_message_id,
+        allow_sending_without_reply=False,
+    )
+
+
+async def _send_case_followup(bot: Bot, case: DamageControlCase, text: str):
+    if case.waiting_comment_user_id:
+        return await bot.send_message(chat_id=case.waiting_comment_user_id, text=text)
+    return await _send_fp_fallback(bot, case, text)
 
 
 async def _close_case(
