@@ -37,6 +37,16 @@ class Settings:
     plate_audit_enabled: bool = True
     plate_audit_hour: int = 4
     supervisor_telegram_id: int | None = None
+    service_username: str = "Norblacksmith"
+    manager_days_off: str = (
+        "pagorodu:thu,fri;Wuggfi:wed,thu;lalalas19:sat,sun;serb_98:sat,sun"
+    )
+    reminder_first_delay_minutes: int = 10
+    fp_manager_response_delay_minutes: int = 45
+    reminder_interval_minutes: int = 30
+    max_reminders: int = 3
+    service_amount_reminder_interval_minutes: int = 10
+    office_timezone: str = "Europe/Moscow"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -60,4 +70,17 @@ class Settings:
             not in {"0", "false", "no", "off"},
             plate_audit_hour=int(os.getenv("PLATE_AUDIT_HOUR", "4")),
             supervisor_telegram_id=optional_int_env("SUPERVISOR_TELEGRAM_ID"),
+            service_username=os.getenv("SERVICE_USERNAME", "Norblacksmith").strip().lstrip("@"),
+            manager_days_off=os.getenv(
+                "MANAGER_DAYS_OFF",
+                "pagorodu:thu,fri;Wuggfi:wed,thu;lalalas19:sat,sun;serb_98:sat,sun",
+            ).strip(),
+            reminder_first_delay_minutes=int(os.getenv("REMINDER_FIRST_DELAY_MINUTES", "10")),
+            fp_manager_response_delay_minutes=int(os.getenv("FP_MANAGER_RESPONSE_DELAY_MINUTES", "45")),
+            reminder_interval_minutes=int(os.getenv("REMINDER_INTERVAL_MINUTES", "30")),
+            max_reminders=int(os.getenv("MAX_REMINDERS", "3")),
+            service_amount_reminder_interval_minutes=int(
+                os.getenv("SERVICE_AMOUNT_REMINDER_INTERVAL_MINUTES", "10")
+            ),
+            office_timezone=os.getenv("OFFICE_TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow",
         )

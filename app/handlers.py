@@ -20,6 +20,7 @@ from app.constants import (
     TIRE_TYPES,
     Scenario,
 )
+from app.damage_control import start_damage_control_for_inspection
 from app.db import session_scope
 from app.export import period_bounds, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
 from app.keyboards import (
@@ -1204,6 +1205,7 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
         message_id = await publish_to_fp(message.bot, inspection, _settings().fp_chat_id)
         inspection.fp_chat_id = _settings().fp_chat_id
         inspection.fp_message_id = message_id
+        await start_damage_control_for_inspection(message.bot, session, inspection, _settings())
         await repo.log_action(inspection, "PUBLISH_FP", int(actor_user_id), str(actor_username) if actor_username else None)
     await state.clear()
     await message.answer(

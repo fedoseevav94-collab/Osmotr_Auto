@@ -48,6 +48,9 @@ class InspectionSession(Base):
     actions: Mapped[list["InspectionAction"]] = relationship(
         back_populates="inspection", cascade="all, delete-orphan"
     )
+    damage_control_case: Mapped["DamageControlCase | None"] = relationship(
+        back_populates="inspection", cascade="all, delete-orphan"
+    )
 
 
 class InspectionPhoto(Base):
@@ -119,3 +122,33 @@ class TireCheckCampaignPlate(Base):
     inspection_id: Mapped[int | None] = mapped_column(ForeignKey("inspection_sessions.id"), nullable=True)
 
     campaign: Mapped[TireCheckCampaign] = relationship(back_populates="plates")
+
+
+class DamageControlCase(Base):
+    __tablename__ = "damage_control_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    inspection_id: Mapped[int] = mapped_column(ForeignKey("inspection_sessions.id"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(64), index=True)
+    category: Mapped[str] = mapped_column(String(64), index=True)
+    plate_normalized: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    fp_chat_id: Mapped[int] = mapped_column(BigInteger)
+    fp_message_id: Mapped[int] = mapped_column(Integer)
+    damage_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reminders_sent: Mapped[int] = mapped_column(Integer, default=0)
+    first_reminder_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_reminder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    service_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    service_request_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    service_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    service_reminder_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    waiting_comment_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    waiting_comment_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    close_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    close_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    inspection: Mapped[InspectionSession] = relationship(back_populates="damage_control_case")
