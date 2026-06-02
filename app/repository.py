@@ -370,6 +370,7 @@ class InspectionRepository:
                 InspectionSession.status == SessionStatus.COMPLETED.value,
                 InspectionSession.completed_at >= start,
                 InspectionSession.completed_at < end,
+                DamageControlCase.payment_amount.is_not(None),
             )
             .order_by(desc(InspectionSession.completed_at), desc(DamageControlCase.id))
             .options(selectinload(DamageControlCase.inspection))

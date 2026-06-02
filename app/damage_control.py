@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 from datetime import UTC, datetime, time, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
@@ -26,6 +27,7 @@ CHARGE_REQUIRED = "DAMAGE_CHARGE_REQUIRED"
 NO_CHARGE_REQUIRED = "DAMAGE_NO_CHARGE_REQUIRED"
 WAITING_MANAGER_ACTION = "WAITING_MANAGER_ACTION"
 WAITING_CLOSE_COMMENT = "WAITING_CLOSE_COMMENT"
+WAITING_PAYMENT_AMOUNT = "WAITING_PAYMENT_AMOUNT"
 WAITING_SERVICE_AMOUNT = "WAITING_SERVICE_AMOUNT"
 SERVICE_AMOUNT_RECEIVED = "SERVICE_AMOUNT_RECEIVED"
 CLOSED_NO_CHARGE_REQUIRED = "CLOSED_NO_CHARGE_REQUIRED"
@@ -68,6 +70,22 @@ WEEKDAY_ALIASES = {
     "sun": 6,
     "sunday": 6,
     "вс": 6,
+}
+
+PAYMENT_TYPE_LABELS = {
+    "installment_1c": "Рассрочка в 1С",
+    "cashbox": "Наличка (касса)",
+    "kasko_franchise": "КАСКО (Франшиза)",
+    "qr": "Оплата по QR коду",
+    "terminal": "Оплата по терминалу",
+}
+
+PAYMENT_TYPE_CLOSE_STATUS = {
+    "installment_1c": "CLOSED_INSTALLMENT",
+    "cashbox": "CLOSED_PAID_CASH",
+    "kasko_franchise": "CLOSED_TRANSFERRED_TO_OFFICE",
+    "qr": "CLOSED_PAID_CASH",
+    "terminal": "CLOSED_PAID_CASH",
 }
 
 
@@ -174,7 +192,7 @@ async def process_due_damage_control(
             if (
                 case.first_reminder_due_at
                 and case.first_reminder_due_at <= now
-                and case.status != WAITING_CLOSE_COMMENT
+                and case.status not in {WAITING_CLOSE_COMMENT, WAITING_PAYMENT_AMOUNT}
             ):
                 if case.reminders_sent >= settings.max_reminders:
                     await _escalate(bot, session, case, settings)
@@ -195,11 +213,16 @@ async def process_due_damage_control(
 @router.callback_query(F.data.startswith("damage_control:"))
 async def damage_control_callback(callback: CallbackQuery) -> None:
     parts = (callback.data or "").split(":")
-    if len(parts) != 3 or not parts[2].isdigit():
+    if len(parts) not in {3, 4}:
         await callback.answer("Не понял действие.", show_alert=True)
         return
     action = parts[1]
-    case_id = int(parts[2])
+    payment_type = parts[2] if len(parts) == 4 else None
+    case_id_raw = parts[3] if len(parts) == 4 else parts[2]
+    if not case_id_raw.isdigit():
+        await callback.answer("Не понял действие.", show_alert=True)
+        return
+    case_id = int(case_id_raw)
     settings = _settings_from_callback(callback)
     async with session_scope(settings.sessionmaker) as session:
         case = await session.scalar(
@@ -210,14 +233,21 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
-        if case.status == WAITING_CLOSE_COMMENT:
-            await callback.answer("Уже жду комментарий по закрытию.", show_alert=True)
+        if case.status in {WAITING_CLOSE_COMMENT, WAITING_PAYMENT_AMOUNT}:
+            await callback.answer("Уже жду данные по закрытию.", show_alert=True)
             return
         if action == "pay":
-            case.status = WAITING_CLOSE_COMMENT
+            await _ask_payment_type(callback.bot, case, callback.from_user.username)
+            with contextlib.suppress(Exception):
+                await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.answer()
+            return
+        if action == "paytype" and payment_type in PAYMENT_TYPE_LABELS:
+            case.status = WAITING_PAYMENT_AMOUNT
             case.waiting_comment_user_id = callback.from_user.id
             case.waiting_comment_username = callback.from_user.username
-            await _ask_close_comment(callback.bot, case, callback.from_user.username)
+            case.payment_type = payment_type
+            await _ask_payment_amount(callback.bot, case, callback.from_user.username, payment_type)
             with contextlib.suppress(Exception):
                 await callback.message.edit_reply_markup(reply_markup=None)
             await callback.answer()
@@ -272,6 +302,37 @@ async def damage_control_message(message: Message) -> None:
             .order_by(DamageControlCase.updated_at.desc(), DamageControlCase.id.desc())
         )
         if not case:
+            case = await session.scalar(
+                select(DamageControlCase)
+                .where(
+                    DamageControlCase.status == WAITING_PAYMENT_AMOUNT,
+                    DamageControlCase.waiting_comment_user_id == message.from_user.id,
+                )
+                .options(selectinload(DamageControlCase.inspection))
+                .order_by(DamageControlCase.updated_at.desc(), DamageControlCase.id.desc())
+            )
+            if not case:
+                return
+            amount = parse_payment_amount(text)
+            if amount is None:
+                await message.bot.send_message(
+                    chat_id=message.chat.id,
+                    text="Не увидел сумму. Напишите только сумму, например: 5000 или 5 тыс.",
+                    reply_to_message_id=message.message_id,
+                    allow_sending_without_reply=True,
+                )
+                return
+            payment_type = case.payment_type or "cashbox"
+            await _close_case(
+                message.bot,
+                case,
+                message.from_user.full_name,
+                message.from_user.username,
+                PAYMENT_TYPE_CLOSE_STATUS.get(payment_type, "CLOSED_PAID_CASH"),
+                f"{PAYMENT_TYPE_LABELS.get(payment_type, payment_type)}: {amount}",
+                payment_type=PAYMENT_TYPE_LABELS.get(payment_type, payment_type),
+                payment_amount=amount,
+            )
             return
         close_type = classify_close_comment(text)
         if not close_type:
@@ -314,6 +375,23 @@ def classify_close_comment(text: str) -> str | None:
     return None
 
 
+def parse_payment_amount(text: str) -> int | None:
+    normalized = text.lower().replace("ё", "е").replace(",", ".")
+    multiplier = 1000 if re.search(r"\b(тыс|т\.?р|к)\b", normalized) else 1
+    match = re.search(r"\d+(?:[\s.]?\d{3})*(?:\.\d+)?|\d+", normalized)
+    if not match:
+        return None
+    raw = match.group(0).replace(" ", "")
+    if "." in raw and len(raw.rsplit(".", 1)[1]) == 3:
+        raw = raw.replace(".", "")
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    amount = int(value * multiplier)
+    return amount if amount > 0 else None
+
+
 def damage_control_keyboard(case_id: int, category: str) -> InlineKeyboardMarkup:
     if category == NO_CHARGE_REQUIRED:
         rows = [
@@ -330,6 +408,20 @@ def damage_control_keyboard(case_id: int, category: str) -> InlineKeyboardMarkup
             [InlineKeyboardButton(text="☑️ Без списания", callback_data=f"damage_control:nocharge:{case_id}")],
         ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def payment_type_keyboard(case_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"damage_control:paytype:{key}:{case_id}",
+                )
+            ]
+            for key, label in PAYMENT_TYPE_LABELS.items()
+        ]
+    )
 
 
 def manager_prompt_text(
@@ -471,6 +563,31 @@ async def _ask_close_comment(bot: Bot, case: DamageControlCase, username: str | 
     )
 
 
+async def _ask_payment_type(bot: Bot, case: DamageControlCase, username: str | None) -> None:
+    mention = f"@{username.lstrip('@')}" if username else "Менеджер"
+    await _send_case_followup(
+        bot,
+        case,
+        f"{mention}, выберите тип оплаты/списания.",
+        reply_markup=payment_type_keyboard(case.id),
+    )
+
+
+async def _ask_payment_amount(
+    bot: Bot,
+    case: DamageControlCase,
+    username: str | None,
+    payment_type: str,
+) -> None:
+    mention = f"@{username.lstrip('@')}" if username else "Менеджер"
+    label = PAYMENT_TYPE_LABELS.get(payment_type, payment_type)
+    await _send_case_followup(
+        bot,
+        case,
+        f"{mention}, тип: {label}.\nНапишите сумму списания/оплаты одним сообщением.",
+    )
+
+
 async def _ask_no_charge_comment(bot: Bot, case: DamageControlCase, username: str | None) -> None:
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
     await _send_case_followup(
@@ -544,8 +661,8 @@ async def _send_fp_fallback(bot: Bot, case: DamageControlCase, text: str, reply_
     )
 
 
-async def _send_case_followup(bot: Bot, case: DamageControlCase, text: str):
-    return await _send_fp_fallback(bot, case, text)
+async def _send_case_followup(bot: Bot, case: DamageControlCase, text: str, reply_markup=None):
+    return await _send_fp_fallback(bot, case, text, reply_markup=reply_markup)
 
 
 async def _close_case(
@@ -555,11 +672,15 @@ async def _close_case(
     actor_username: str | None,
     close_type: str,
     comment: str,
+    payment_type: str | None = None,
+    payment_amount: int | None = None,
 ) -> None:
     now = _utcnow()
     case.status = close_type
     case.close_type = close_type
     case.close_comment = comment
+    case.payment_type = payment_type
+    case.payment_amount = payment_amount
     case.closed_at = now
     case.first_reminder_due_at = None
     case.service_reminder_due_at = None
@@ -582,7 +703,14 @@ def close_summary_text(
     dt = case.inspection.completed_at or case.inspection.updated_at or case.created_at
     action = "проверку без списания"
     if case.close_type != CLOSED_NO_CHARGE_REQUIRED:
-        action = "оплату/закрытие по повреждениям"
+        action = "оплату/списание по повреждениям"
+    if case.payment_type and case.payment_amount:
+        return (
+            f"Сотрудник {actor_name}{username} зафиксировал {action} на авто {plate}.\n"
+            f"Дата и время осмотра: {dt:%d.%m.%Y %H:%M}\n"
+            f"Тип оплаты: {PAYMENT_TYPE_LABELS.get(case.payment_type, case.payment_type)}\n"
+            f"Сумма: {case.payment_amount}"
+        )
     return (
         f"Сотрудник {actor_name}{username} зафиксировал {action} на авто {plate}.\n"
         f"Дата и время осмотра: {dt:%d.%m.%Y %H:%M}\n"

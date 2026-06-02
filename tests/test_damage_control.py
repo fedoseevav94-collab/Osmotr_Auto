@@ -6,6 +6,8 @@ from app.damage_control import (
     active_manager_mentions,
     classify_close_comment,
     manager_prompt_text,
+    parse_payment_amount,
+    payment_type_keyboard,
     parse_manager_days_off,
     _first_due_at,
 )
@@ -40,6 +42,26 @@ def test_close_comment_requires_real_action_keyword() -> None:
     assert classify_close_comment("оплатил 5 тыс наличными") == "CLOSED_PAID_CASH"
     assert classify_close_comment("списали 15000 с баланса") == "CLOSED_BALANCE_CHARGED"
     assert classify_close_comment("поставили рассрочку 30000") == "CLOSED_INSTALLMENT"
+
+
+def test_payment_amount_parsing() -> None:
+    assert parse_payment_amount("5000") == 5000
+    assert parse_payment_amount("5 000") == 5000
+    assert parse_payment_amount("5.000") == 5000
+    assert parse_payment_amount("5 тыс") == 5000
+    assert parse_payment_amount("ок") is None
+
+
+def test_payment_type_keyboard_uses_business_labels() -> None:
+    labels = [button.text for row in payment_type_keyboard(1).inline_keyboard for button in row]
+
+    assert labels == [
+        "Рассрочка в 1С",
+        "Наличка (касса)",
+        "КАСКО (Франшиза)",
+        "Оплата по QR коду",
+        "Оплата по терминалу",
+    ]
 
 
 def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:

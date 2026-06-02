@@ -157,6 +157,8 @@ class DamageControlCase(Base):
     waiting_comment_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     close_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     close_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payment_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payment_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

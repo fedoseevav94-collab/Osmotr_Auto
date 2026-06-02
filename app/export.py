@@ -40,14 +40,9 @@ CHARGE_HEADERS = [
     "Тип осмотра",
     "Сотрудник осмотра",
     "Описание повреждений",
-    "Статус",
-    "Тип закрытия",
-    "Комментарий закрытия",
+    "Сумма",
+    "Тип оплаты",
     "Дата закрытия",
-    "Напоминаний менеджерам",
-    "Запрошен сервис",
-    "Ответ сервиса",
-    "Ожидание сервиса, минут",
     "Ссылка на сообщение в ФП",
 ]
 
@@ -152,9 +147,6 @@ def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
     ws.append(CHARGE_HEADERS)
     for row in rows:
         inspection = row.inspection
-        wait_minutes = ""
-        if row.service_requested_at and row.service_received_at:
-            wait_minutes = int((row.service_received_at - row.service_requested_at).total_seconds() // 60)
         ws.append(
             [
                 row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "",
@@ -162,14 +154,9 @@ def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
                 inspection.scenario or "",
                 f"@{inspection.telegram_username}" if inspection.telegram_username else inspection.telegram_name or "",
                 row.damage_description or inspection.damage_description or "",
-                row.status,
-                row.close_type or "",
-                row.close_comment or "",
+                row.payment_amount or "",
+                row.payment_type or "",
                 row.closed_at.strftime("%d.%m.%Y %H:%M") if row.closed_at else "",
-                row.reminders_sent,
-                row.service_requested_at.strftime("%d.%m.%Y %H:%M") if row.service_requested_at else "",
-                row.service_received_at.strftime("%d.%m.%Y %H:%M") if row.service_received_at else "",
-                wait_minutes,
                 fp_link(inspection),
             ]
         )
