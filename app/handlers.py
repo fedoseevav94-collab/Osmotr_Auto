@@ -599,7 +599,9 @@ async def plate_photo(message: Message, state: FSMContext) -> None:
 
 
 @router.message(InspectionFlow.plate_photo)
-async def plate_photo_required(message: Message) -> None:
+async def plate_photo_required(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
     await message.answer(
         _accent("📸 Нужно именно фото госномера. Отправьте фото."),
         reply_markup=staff_reply_keyboard(),
@@ -675,7 +677,9 @@ async def dashboard_photo(message: Message, state: FSMContext) -> None:
 
 
 @router.message(InspectionFlow.dashboard_photo)
-async def dashboard_photo_required(message: Message) -> None:
+async def dashboard_photo_required(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
     await message.answer(_accent("⛽ Нужно фото приборной панели, где виден уровень топлива."), parse_mode="HTML")
 
 
@@ -969,7 +973,9 @@ async def tire_photo(message: Message, state: FSMContext) -> None:
 
 
 @router.message(InspectionFlow.tire_photo)
-async def tire_photo_required(message: Message) -> None:
+async def tire_photo_required(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
     await message.answer(_accent("📸 Нужно фото резины / протектора."), parse_mode="HTML")
 
 
