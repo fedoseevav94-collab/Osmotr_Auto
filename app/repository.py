@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.constants import PROBLEM_SCORE_THRESHOLD, PhotoType, SessionStatus
 from app.models import (
     BotUser,
+    DamageControlCase,
     InspectionAction,
     InspectionPhoto,
     InspectionSession,
@@ -358,6 +359,42 @@ class InspectionRepository:
                 ),
             )
             .order_by(desc(InspectionSession.completed_at), desc(InspectionSession.id))
+        )
+        return list(await self.session.scalars(query))
+
+    async def damage_control_rows(self, start: datetime, end: datetime) -> list[DamageControlCase]:
+        query = (
+            select(DamageControlCase)
+            .join(InspectionSession, DamageControlCase.inspection_id == InspectionSession.id)
+            .where(
+                InspectionSession.status == SessionStatus.COMPLETED.value,
+                InspectionSession.completed_at >= start,
+                InspectionSession.completed_at < end,
+            )
+            .order_by(desc(InspectionSession.completed_at), desc(DamageControlCase.id))
+            .options(selectinload(DamageControlCase.inspection))
+        )
+        return list(await self.session.scalars(query))
+
+    async def open_damage_control_cases(self, final_statuses: set[str]) -> list[DamageControlCase]:
+        query = (
+            select(DamageControlCase)
+            .where(DamageControlCase.status.not_in(final_statuses))
+            .order_by(desc(DamageControlCase.created_at), desc(DamageControlCase.id))
+            .options(selectinload(DamageControlCase.inspection))
+        )
+        return list(await self.session.scalars(query))
+
+    async def waiting_service_amount_cases(self, final_statuses: set[str]) -> list[DamageControlCase]:
+        query = (
+            select(DamageControlCase)
+            .where(
+                DamageControlCase.status.not_in(final_statuses),
+                DamageControlCase.service_requested_at.is_not(None),
+                DamageControlCase.service_received_at.is_(None),
+            )
+            .order_by(desc(DamageControlCase.service_requested_at), desc(DamageControlCase.id))
+            .options(selectinload(DamageControlCase.inspection))
         )
         return list(await self.session.scalars(query))
 

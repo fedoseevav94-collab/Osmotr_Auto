@@ -54,6 +54,9 @@ def supervisor_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📊 Статистика за сегодня", callback_data="supervisor:stats_today")],
             [InlineKeyboardButton(text="📥 Выгрузить оценки", callback_data="supervisor:export_scores")],
             [InlineKeyboardButton(text="⚠️ Проблемные авто", callback_data="supervisor:export_problems")],
+            [InlineKeyboardButton(text="💸 Выгрузить списания", callback_data="supervisor:export_charges")],
+            [InlineKeyboardButton(text="🔓 Открытые повреждения", callback_data="supervisor:open_damages")],
+            [InlineKeyboardButton(text="🛠️ Ждём сервис", callback_data="supervisor:service_waiting")],
             [InlineKeyboardButton(text="🛞 Проверка резины", callback_data="supervisor:tire_check")],
             [InlineKeyboardButton(text="📌 Статус кампаний", callback_data="supervisor:active_campaigns")],
             [InlineKeyboardButton(text="🧰 Перейти в режим сотрудника", callback_data="role:staff")],
@@ -246,5 +249,17 @@ def problem_period_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🗓️ Текущая неделя", callback_data="problems:week")],
             [InlineKeyboardButton(text="📆 Текущий месяц", callback_data="problems:month")],
             [InlineKeyboardButton(text="✍️ Свой период", callback_data="problems:custom")],
+        ]
+    )
+
+
+def charge_period_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📅 Сегодня", callback_data="charges:today")],
+            [InlineKeyboardButton(text="↩️ Вчера", callback_data="charges:yesterday")],
+            [InlineKeyboardButton(text="🗓️ Текущая неделя", callback_data="charges:week")],
+            [InlineKeyboardButton(text="📆 Текущий месяц", callback_data="charges:month")],
+            [InlineKeyboardButton(text="✍️ Свой период", callback_data="charges:custom")],
         ]
     )

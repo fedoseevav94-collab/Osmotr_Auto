@@ -210,6 +210,9 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
+        if case.status == WAITING_CLOSE_COMMENT:
+            await callback.answer("Уже жду комментарий по закрытию.", show_alert=True)
+            return
         if action == "pay":
             case.status = WAITING_CLOSE_COMMENT
             case.waiting_comment_user_id = callback.from_user.id
@@ -456,7 +459,8 @@ async def _ask_close_comment(bot: Bot, case: DamageControlCase, username: str | 
         bot,
         case,
         (
-            f"{mention}, напишите комментарий по закрытию.\n\n"
+            f"{mention} выбрал оплату/списание.\n"
+            "Напишите комментарий по закрытию.\n\n"
             "Примеры:\n"
             "— оплатил 20000 наличными\n"
             "— списали 15000 с баланса\n"
@@ -473,7 +477,8 @@ async def _ask_no_charge_comment(bot: Bot, case: DamageControlCase, username: st
         bot,
         case,
         (
-            f"{mention}, напишите причину без списания.\n\n"
+            f"{mention} выбрал закрытие без списания.\n"
+            "Напишите причину без списания.\n\n"
             "Примеры:\n"
             "— списание не требуется, причина: повреждение старое\n"
             "— без списания, причина: повреждение уже было\n"
@@ -502,9 +507,17 @@ async def _record_service_response(session: AsyncSession, message: Message, text
         )
     if case is None:
         return False
+    if case.service_received_at:
+        return True
     case.service_received_at = _utcnow()
     if case.status == WAITING_SERVICE_AMOUNT:
         case.status = SERVICE_AMOUNT_RECEIVED
+    await message.bot.send_message(
+        chat_id=case.fp_chat_id,
+        text=f"Получил ответ от @{message.from_user.username or 'Norblacksmith'} по оценке/сумме повреждения.",
+        reply_to_message_id=case.fp_message_id,
+        allow_sending_without_reply=False,
+    )
     logger.info("Service amount response for inspection damage case %s: %s", case.id, text)
     return True
 

@@ -20,9 +20,9 @@ from app.constants import (
     TIRE_TYPES,
     Scenario,
 )
-from app.damage_control import start_damage_control_for_inspection
+from app.damage_control import FINAL_STATUSES, start_damage_control_for_inspection
 from app.db import session_scope
-from app.export import period_bounds, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
+from app.export import period_bounds, write_charge_xlsx, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
 from app.keyboards import (
     BACK_BUTTON,
     FORWARD_BUTTON,
@@ -32,6 +32,7 @@ from app.keyboards import (
     draft_keyboard,
     driver_remarks_keyboard,
     dtp_keyboard,
+    charge_period_keyboard,
     export_period_keyboard,
     plate_choices_keyboard,
     plate_correction_keyboard,
@@ -450,6 +451,12 @@ async def supervisor_menu_action(callback: CallbackQuery, state: FSMContext) -> 
         await callback.message.answer("Выберите период:", reply_markup=export_period_keyboard())
     elif action == "export_problems":
         await callback.message.answer("Выберите период для проблемных авто:", reply_markup=problem_period_keyboard())
+    elif action == "export_charges":
+        await callback.message.answer("Выберите период для списаний:", reply_markup=charge_period_keyboard())
+    elif action == "open_damages":
+        await send_open_damages(callback.message)
+    elif action == "service_waiting":
+        await send_service_waiting(callback.message)
     elif action == "tire_check":
         await start_tire_campaign(
             callback.message,
@@ -1469,6 +1476,31 @@ async def export_problems(message: Message, state: FSMContext) -> None:
     await message.answer("Выберите период для проблемных авто:", reply_markup=problem_period_keyboard())
 
 
+@router.message(Command("export_charges"))
+async def export_charges(message: Message, state: FSMContext) -> None:
+    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    await state.clear()
+    await message.answer("Выберите период для списаний:", reply_markup=charge_period_keyboard())
+
+
+@router.message(Command("open_damages"))
+async def open_damages(message: Message) -> None:
+    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    await send_open_damages(message)
+
+
+@router.message(Command("service_waiting"))
+async def service_waiting(message: Message) -> None:
+    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    await send_service_waiting(message)
+
+
 @router.callback_query(F.data.startswith("export:"))
 async def export_scores_period(callback: CallbackQuery, state: FSMContext) -> None:
     if not is_supervisor(callback.from_user.username, _settings().supervisor_username):
@@ -1499,6 +1531,22 @@ async def export_problems_period(callback: CallbackQuery, state: FSMContext) -> 
         return
     start, end = period_bounds(period)
     await send_problem_export(callback.message, start, end)
+
+
+@router.callback_query(F.data.startswith("charges:"))
+async def export_charges_period(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_supervisor(callback.from_user.username, _settings().supervisor_username):
+        await callback.message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        await callback.answer()
+        return
+    period = callback.data.split(":", 1)[1]
+    await callback.answer()
+    if period == "custom":
+        await _set_state(state, ExportFlow.charge_custom_period)
+        await callback.message.answer("Введите период в формате ДД.ММ.ГГГГ-ДД.ММ.ГГГГ")
+        return
+    start, end = period_bounds(period)
+    await send_charge_export(callback.message, start, end)
 
 
 @router.message(ExportFlow.custom_period, F.text)
@@ -1537,6 +1585,24 @@ async def export_problem_custom_period(message: Message, state: FSMContext) -> N
     await send_problem_export(message, start, end)
 
 
+@router.message(ExportFlow.charge_custom_period, F.text)
+async def export_charge_custom_period(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
+    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    try:
+        raw_start, raw_end = [part.strip() for part in message.text.split("-", 1)]
+        start = datetime.strptime(raw_start, "%d.%m.%Y")
+        end = datetime.strptime(raw_end, "%d.%m.%Y").replace(hour=23, minute=59, second=59)
+    except ValueError:
+        await message.answer("Не понял период. Формат: ДД.ММ.ГГГГ-ДД.ММ.ГГГГ")
+        return
+    await state.clear()
+    await send_charge_export(message, start, end)
+
+
 async def send_scores_export(message: Message, start: datetime, end: datetime) -> None:
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
@@ -1553,6 +1619,57 @@ async def send_problem_export(message: Message, start: datetime, end: datetime) 
     path = _settings().data_dir / f"problems_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
     write_problem_xlsx(rows, path)
     await message.answer_document(FSInputFile(path), caption=f"Проблемные авто: {len(rows)} строк")
+
+
+async def send_charge_export(message: Message, start: datetime, end: datetime) -> None:
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        rows = await repo.damage_control_rows(start, end)
+    path = _settings().data_dir / f"charges_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
+    write_charge_xlsx(rows, path)
+    await message.answer_document(FSInputFile(path), caption=f"Списания/закрытия повреждений: {len(rows)} строк")
+
+
+async def send_open_damages(message: Message) -> None:
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        rows = await repo.open_damage_control_cases(FINAL_STATUSES)
+    if not rows:
+        await message.answer("Открытых повреждений сейчас нет.")
+        return
+    lines = ["Открытые повреждения:"]
+    for row in rows[:20]:
+        inspection = row.inspection
+        plate = row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "без номера"
+        date = inspection.completed_at.strftime("%d.%m.%Y %H:%M") if inspection.completed_at else ""
+        service = "сервис ответил" if row.service_received_at else "ждём сервис"
+        lines.append(
+            f"#{row.id} {plate} | {date} | {row.status} | напоминаний {row.reminders_sent} | {service}"
+        )
+    if len(rows) > 20:
+        lines.append(f"...и ещё {len(rows) - 20}")
+    await message.answer("\n".join(lines))
+
+
+async def send_service_waiting(message: Message) -> None:
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        rows = await repo.waiting_service_amount_cases(FINAL_STATUSES)
+    if not rows:
+        await message.answer("Сейчас нет повреждений, где ждём оценку/сумму от сервиса.")
+        return
+    now = datetime.utcnow()
+    lines = ["Ждём оценку/сумму от сервиса:"]
+    for row in rows[:20]:
+        inspection = row.inspection
+        plate = row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "без номера"
+        requested = row.service_requested_at
+        minutes = int((now - requested).total_seconds() // 60) if requested else 0
+        date = inspection.completed_at.strftime("%d.%m.%Y %H:%M") if inspection.completed_at else ""
+        lines.append(f"#{row.id} {plate} | осмотр {date} | ждём {minutes} мин")
+    if len(rows) > 20:
+        lines.append(f"...и ещё {len(rows) - 20}")
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("history_auto"))

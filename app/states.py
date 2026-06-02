@@ -27,6 +27,7 @@ class InspectionFlow(StatesGroup):
 class ExportFlow(StatesGroup):
     custom_period = State()
     problem_custom_period = State()
+    charge_custom_period = State()
 
 
 class TireCampaignFlow(StatesGroup):

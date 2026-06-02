@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from openpyxl import Workbook
 
 from app.constants import TIRE_TYPES
-from app.models import InspectionSession
+from app.models import DamageControlCase, InspectionSession
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -33,6 +33,23 @@ SCORE_HEADERS = [
 ]
 
 HISTORY_HEADERS = SCORE_HEADERS[1:]
+
+CHARGE_HEADERS = [
+    "Гос номер",
+    "Дата осмотра",
+    "Тип осмотра",
+    "Сотрудник осмотра",
+    "Описание повреждений",
+    "Статус",
+    "Тип закрытия",
+    "Комментарий закрытия",
+    "Дата закрытия",
+    "Напоминаний менеджерам",
+    "Запрошен сервис",
+    "Ответ сервиса",
+    "Ожидание сервиса, минут",
+    "Ссылка на сообщение в ФП",
+]
 
 
 def period_bounds(period: str, now: datetime | None = None) -> tuple[datetime, datetime]:
@@ -122,6 +139,40 @@ def write_problem_xlsx(rows: list[InspectionSession], output_path: Path) -> Path
     ws.append([*SCORE_HEADERS, "Причина попадания"])
     for row in rows:
         ws.append([row.plate_normalized or row.plate_raw or "", *_base_values(row), problem_reason(row)])
+    _autosize(ws)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+    return output_path
+
+
+def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Списания"
+    ws.append(CHARGE_HEADERS)
+    for row in rows:
+        inspection = row.inspection
+        wait_minutes = ""
+        if row.service_requested_at and row.service_received_at:
+            wait_minutes = int((row.service_received_at - row.service_requested_at).total_seconds() // 60)
+        ws.append(
+            [
+                row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "",
+                inspection.completed_at.strftime("%d.%m.%Y %H:%M") if inspection.completed_at else "",
+                inspection.scenario or "",
+                f"@{inspection.telegram_username}" if inspection.telegram_username else inspection.telegram_name or "",
+                row.damage_description or inspection.damage_description or "",
+                row.status,
+                row.close_type or "",
+                row.close_comment or "",
+                row.closed_at.strftime("%d.%m.%Y %H:%M") if row.closed_at else "",
+                row.reminders_sent,
+                row.service_requested_at.strftime("%d.%m.%Y %H:%M") if row.service_requested_at else "",
+                row.service_received_at.strftime("%d.%m.%Y %H:%M") if row.service_received_at else "",
+                wait_minutes,
+                fp_link(inspection),
+            ]
+        )
     _autosize(ws)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
