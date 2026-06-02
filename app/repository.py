@@ -136,6 +136,27 @@ class InspectionRepository:
         )
         return list(await self.session.scalars(query))
 
+    async def latest_user_id_by_username(self, username: str) -> int | None:
+        normalized = username.strip().lstrip("@").lower()
+        if not normalized:
+            return None
+        action_query = (
+            select(InspectionAction.telegram_user_id)
+            .where(func.lower(InspectionAction.telegram_username) == normalized)
+            .order_by(desc(InspectionAction.created_at), desc(InspectionAction.id))
+            .limit(1)
+        )
+        action_user_id = await self.session.scalar(action_query)
+        if action_user_id is not None:
+            return action_user_id
+        inspection_query = (
+            select(InspectionSession.telegram_user_id)
+            .where(func.lower(InspectionSession.telegram_username) == normalized)
+            .order_by(desc(InspectionSession.updated_at), desc(InspectionSession.id))
+            .limit(1)
+        )
+        return await self.session.scalar(inspection_query)
+
     async def upsert_known_plate(
         self,
         plate_raw: str,

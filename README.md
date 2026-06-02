@@ -54,12 +54,12 @@ BOT_TOKEN=
 FP_CHAT_ID=-1001905865504
 DATABASE_URL=sqlite+aiosqlite:////app/data/bot.db
 SUPERVISOR_USERNAME=Fedos_AV
+SUPERVISOR_TELEGRAM_ID=
 INSPECTION_STAFF_USERNAMES=
 DATA_DIR=/app/data
 VEHICLE_PLATES_XLSX=/app/seed/park_cars.xlsx
 PLATE_AUDIT_ENABLED=true
 PLATE_AUDIT_HOUR=4
-PLATE_AUDIT_CHAT_ID=
 ```
 
 Важно: бот должен быть добавлен в чат `ФП - фотофиксация повреждений` и иметь право отправлять сообщения/медиа.
@@ -74,8 +74,9 @@ PLATE_AUDIT_CHAT_ID=
 
 Если `PLATE_AUDIT_ENABLED=true`, бот раз в сутки в `PLATE_AUDIT_HOUR` по Москве
 сверяет фото госномера за предыдущий день с номером, который выбрал или ввёл сотрудник.
-По умолчанию отчёт отправляется в ФП. Если нужен отдельный чат для сверки, укажите
-`PLATE_AUDIT_CHAT_ID`.
+Отчёт отправляется руководителю `Fedos_AV` в личные сообщения и содержит ссылки на сообщения
+осмотров в ФП. Для гарантированной доставки укажите `SUPERVISOR_TELEGRAM_ID`; если он пустой,
+бот попробует найти id руководителя по действиям в базе.
 
 ## Разовая проверка резины
 

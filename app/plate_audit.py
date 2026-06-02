@@ -28,6 +28,7 @@ class PlateAuditItem:
     plate: str
     recognized: str | None
     status: str
+    link: str
 
 
 async def run_plate_audit_scheduler(
@@ -56,10 +57,12 @@ async def run_daily_plate_audit(
 ) -> list[PlateAuditItem]:
     start, end = _previous_moscow_day_bounds(now)
     items = await audit_plate_photos(bot, sessionmaker, settings.data_dir / "plate_audit", start, end)
-    await bot.send_message(
-        chat_id=settings.plate_audit_chat_id or settings.fp_chat_id,
-        text=build_plate_audit_report(items, start, end),
-    )
+    chat_id = await _audit_recipient_chat_id(sessionmaker, settings)
+    if chat_id is None:
+        logger.warning("Daily plate audit report was not sent: supervisor chat id is unknown")
+        return items
+    for chunk in _split_telegram_message(build_plate_audit_report(items, start, end)):
+        await bot.send_message(chat_id=chat_id, text=chunk)
     return items
 
 
@@ -79,23 +82,24 @@ async def audit_plate_photos(
     for inspection in inspections:
         plate = inspection.plate_normalized or inspection.plate_raw or ""
         photo = next((item for item in inspection.photos if item.photo_type == PhotoType.PLATE.value), None)
+        link = _inspection_link(inspection)
         if photo is None:
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "no_photo"))
+            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "no_photo", link))
             continue
         path = output_dir / f"inspection_{inspection.id}_plate.jpg"
         path.unlink(missing_ok=True)
         with contextlib.suppress(Exception):
             await bot.download(photo.telegram_file_id, destination=path)
         if not path.exists():
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "download_failed"))
+            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "download_failed", link))
             continue
-        recognized = recognize_plate_from_image(path)
+        recognized = recognize_plate_from_image(path, exhaustive=True)
         if recognized is None:
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "unrecognized"))
+            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "unrecognized", link))
         elif recognized == plate:
-            result.append(PlateAuditItem(inspection.id, plate, recognized, "match"))
+            result.append(PlateAuditItem(inspection.id, plate, recognized, "match", link))
         else:
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", recognized, "mismatch"))
+            result.append(PlateAuditItem(inspection.id, plate or "без номера", recognized, "mismatch", link))
     return result
 
 
@@ -119,7 +123,10 @@ def build_plate_audit_report(items: list[PlateAuditItem], start: datetime, end: 
         lines.append("")
         lines.append("Расхождения:")
         for item in mismatches[:20]:
-            lines.append(f"#{item.inspection_id}: указано {item.plate}, на фото похоже {item.recognized}")
+            lines.append(
+                f"#{item.inspection_id}: указано {item.plate}, на фото похоже {item.recognized}"
+                f"{_link_suffix(item)}"
+            )
     if unresolved:
         labels = {
             "no_photo": "нет фото госномера",
@@ -129,8 +136,48 @@ def build_plate_audit_report(items: list[PlateAuditItem], start: datetime, end: 
         lines.append("")
         lines.append("Не удалось проверить:")
         for item in unresolved[:20]:
-            lines.append(f"#{item.inspection_id}: {item.plate} — {labels.get(item.status, item.status)}")
+            lines.append(f"#{item.inspection_id}: {item.plate} — {labels.get(item.status, item.status)}{_link_suffix(item)}")
     return "\n".join(lines)
+
+
+async def _audit_recipient_chat_id(sessionmaker: async_sessionmaker, settings: Settings) -> int | None:
+    if settings.supervisor_telegram_id:
+        return settings.supervisor_telegram_id
+    async with session_scope(sessionmaker) as session:
+        repo = InspectionRepository(session)
+        return await repo.latest_user_id_by_username(settings.supervisor_username)
+
+
+def _inspection_link(inspection: InspectionSession) -> str:
+    if not inspection.fp_chat_id or not inspection.fp_message_id:
+        return ""
+    chat = str(inspection.fp_chat_id)
+    if chat.startswith("-100"):
+        chat = chat[4:]
+    elif chat.startswith("100"):
+        chat = chat[3:]
+    return f"https://t.me/c/{chat}/{inspection.fp_message_id}"
+
+
+def _link_suffix(item: PlateAuditItem) -> str:
+    return f"\n   Осмотр: {item.link}" if item.link else ""
+
+
+def _split_telegram_message(text: str, limit: int = 3800) -> list[str]:
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in text.splitlines():
+        line_len = len(line) + 1
+        if current and current_len + line_len > limit:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+    if current:
+        chunks.append("\n".join(current))
+    return chunks or [text]
 
 
 def _previous_moscow_day_bounds(now: datetime | None = None) -> tuple[datetime, datetime]:

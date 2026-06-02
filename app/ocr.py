@@ -39,7 +39,7 @@ def extract_plate_from_text(text: str) -> str | None:
     return None
 
 
-def recognize_plate_from_image(path: Path) -> str | None:
+def recognize_plate_from_image(path: Path, exhaustive: bool = False) -> str | None:
     try:
         from PIL import Image, ImageEnhance, ImageFilter, ImageOps
         import pytesseract
@@ -49,15 +49,33 @@ def recognize_plate_from_image(path: Path) -> str | None:
 
     try:
         image = Image.open(path)
-        candidates = _image_candidates(image, ImageOps, ImageEnhance, ImageFilter)
+        candidates = _image_candidates(image, ImageOps, ImageEnhance, ImageFilter, exhaustive)
         configs = [
             f"--oem 3 --psm 7 -c tessedit_char_whitelist={OCR_WHITELIST}",
             f"--oem 3 --psm 8 -c tessedit_char_whitelist={OCR_WHITELIST}",
         ]
+        if exhaustive:
+            configs.extend(
+                [
+                    f"--oem 3 --psm 6 -c tessedit_char_whitelist={OCR_WHITELIST}",
+                    f"--oem 3 --psm 11 -c tessedit_char_whitelist={OCR_WHITELIST}",
+                    f"--oem 3 --psm 13 -c tessedit_char_whitelist={OCR_WHITELIST}",
+                ]
+            )
+        max_attempts = 48 if exhaustive else 8
+        attempts = 0
         for candidate in candidates:
             for config in configs:
+                attempts += 1
+                if attempts > max_attempts:
+                    return None
                 try:
-                    text = pytesseract.image_to_string(candidate, lang="rus+eng", config=config, timeout=1.2)
+                    text = pytesseract.image_to_string(
+                        candidate,
+                        lang="rus+eng",
+                        config=config,
+                        timeout=2.5 if exhaustive else 1.2,
+                    )
                 except RuntimeError:
                     continue
                 plate = extract_plate_from_text(text)
@@ -85,20 +103,37 @@ def _coerce_plate_candidate(value: str) -> str | None:
     return "".join(result)
 
 
-def _image_candidates(image, ImageOps, ImageEnhance, ImageFilter):
+def _image_candidates(image, ImageOps, ImageEnhance, ImageFilter, exhaustive: bool = False):
     width, height = image.size
     crops = [
         image.crop((0, int(height * 0.42), width, int(height * 0.88))),
         image.crop((int(width * 0.08), int(height * 0.48), int(width * 0.92), int(height * 0.82))),
     ]
+    if exhaustive:
+        crops.extend(
+            [
+                image,
+                image.crop((0, int(height * 0.30), width, int(height * 0.95))),
+                image.crop((int(width * 0.05), int(height * 0.40), int(width * 0.95), int(height * 0.90))),
+                image.crop((int(width * 0.18), int(height * 0.50), int(width * 0.82), int(height * 0.78))),
+            ]
+        )
     candidates = []
     for crop in crops:
-        gray = ImageOps.grayscale(crop)
-        scale = 2 if max(gray.size) < 1200 else 1
-        if scale > 1:
-            gray = gray.resize((gray.width * scale, gray.height * scale))
-        enhanced = ImageEnhance.Contrast(ImageOps.autocontrast(gray)).enhance(2.2)
-        sharpened = enhanced.filter(ImageFilter.SHARPEN)
-        threshold = sharpened.point(lambda pixel: 255 if pixel > 145 else 0)
-        candidates.extend([sharpened, threshold])
+        rotations = (0, -4, 4, -8, 8) if exhaustive else (0,)
+        for angle in rotations:
+            rotated = crop.rotate(angle, expand=True, fillcolor="white") if angle else crop
+            gray = ImageOps.grayscale(rotated)
+            scale = 2 if max(gray.size) < 1200 else 1
+            if exhaustive and max(gray.size) < 1800:
+                scale = 3
+            if scale > 1:
+                gray = gray.resize((gray.width * scale, gray.height * scale))
+            enhanced = ImageEnhance.Contrast(ImageOps.autocontrast(gray)).enhance(2.4 if exhaustive else 2.2)
+            sharpened = enhanced.filter(ImageFilter.SHARPEN)
+            thresholds = (120, 145, 170) if exhaustive else (145,)
+            candidates.append(sharpened)
+            for threshold_value in thresholds:
+                threshold = sharpened.point(lambda pixel, value=threshold_value: 255 if pixel > value else 0)
+                candidates.append(threshold)
     return candidates
