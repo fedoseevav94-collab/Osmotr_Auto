@@ -90,10 +90,120 @@ async def _active_repo():
     return session_scope(_sessionmaker())
 
 
+def _state_value(value) -> str | None:
+    if value is None:
+        return None
+    return getattr(value, "state", value)
+
+
 async def _set_state(state: FSMContext, new_state) -> None:
     current = await state.get_state()
-    await state.update_data(previous_state=current, forward_state=None)
+    new_state_value = _state_value(new_state)
+    data = await state.get_data()
+    back_stack = list(data.get("back_stack", []))
+    if current and current != new_state_value:
+        back_stack.append(current)
+    await state.update_data(
+        previous_state=back_stack[-1] if back_stack else None,
+        forward_state=None,
+        back_stack=back_stack,
+        forward_stack=[],
+    )
     await state.set_state(new_state)
+
+
+async def _render_current_step(message: Message, state: FSMContext, state_value: str) -> None:
+    data = await state.get_data()
+    reply_markup = staff_reply_keyboard(can_forward=bool(data.get("forward_stack")))
+    if state_value == InspectionFlow.choosing_scenario.state:
+        await message.answer(
+            _accent("🚗 Выберите сценарий осмотра:"),
+            reply_markup=scenario_keyboard(),
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.accident_guilt.state:
+        await message.answer(_accent("🚨 Водитель виноват?"), reply_markup=dtp_keyboard(), parse_mode="HTML")
+    elif state_value == InspectionFlow.plate_digits.state:
+        await message.answer(
+            _accent("🔢 Сейчас шаг ввода номера.")
+            + "\nВведите <b>3 цифры госномера</b>.",
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.plate_select.state:
+        digits = data.get("plate_digits")
+        if digits:
+            async with session_scope(_sessionmaker()) as session:
+                repo = InspectionRepository(session)
+                matches = await repo.search_known_plates_by_digits(digits)
+            await message.answer(
+                _accent(f"🚘 Снова показываю номера с цифрами {digits}. Выберите нужный:")
+                + "\nМожно также ввести другие 3 цифры новым сообщением.",
+                reply_markup=plate_choices_keyboard(matches),
+                parse_mode="HTML",
+            )
+        else:
+            await message.answer(
+                _accent("🔢 Введите 3 цифры госномера."),
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+            )
+    elif state_value == InspectionFlow.plate_text.state:
+        await message.answer(_accent("✍️ Введите госномер полностью."), reply_markup=reply_markup, parse_mode="HTML")
+    elif state_value == InspectionFlow.plate_photo.state:
+        await message.answer(
+            _accent("📸 Теперь отправьте фото госномера для отчёта."),
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.dashboard_photo.state:
+        await message.answer(
+            _accent("⛽ Отправьте фото приборной панели с уровнем топлива."),
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.damage_question.state:
+        await message.answer(_accent("⚠️ Есть повреждения?"), reply_markup=yes_no_keyboard("damage"), parse_mode="HTML")
+    elif state_value == InspectionFlow.damage_photos.state:
+        await message.answer(
+            _accent("📸 Отправьте фото повреждений или нажмите кнопку, если фото уже отправлены."),
+            reply_markup=damage_photos_keyboard(),
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.damage_description.state:
+        await message.answer(_accent("📝 Опишите повреждения."), reply_markup=reply_markup, parse_mode="HTML")
+    elif state_value == InspectionFlow.score.state:
+        index = data.get("score_index", 0)
+        prefix, title = SCORE_FIELDS[index]
+        await message.answer(_accent(f"⭐ Оценка: {title}"), reply_markup=score_keyboard(prefix), parse_mode="HTML")
+    elif state_value == InspectionFlow.score_comment.state:
+        await message.answer(
+            _accent("📝 Оценка ниже 4. Напишите комментарий по этому критерию."),
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.driver_remarks.state:
+        await message.answer(
+            _accent("💬 Есть ли замечания по авто у водителя?"),
+            reply_markup=driver_remarks_keyboard(),
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.driver_remarks_comment.state:
+        await message.answer(
+            _accent("📝 Опишите замечания водителя по авто."),
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    elif state_value == InspectionFlow.tire_type.state:
+        await message.answer(_accent("🛞 Какая резина стоит на авто?"), reply_markup=tire_type_keyboard(), parse_mode="HTML")
+    elif state_value == InspectionFlow.tire_photo.state:
+        await message.answer(_accent("📸 Отправьте фото резины / протектора."), reply_markup=reply_markup, parse_mode="HTML")
+    elif state_value == InspectionFlow.tire_score.state:
+        await message.answer(_accent("⭐ Оцените состояние резины:"), reply_markup=tire_score_keyboard(), parse_mode="HTML")
+    elif state_value == InspectionFlow.tire_comment.state:
+        await message.answer(_accent("📝 Напишите комментарий по резине."), reply_markup=reply_markup, parse_mode="HTML")
+    else:
+        await message.answer(_accent("↩️ Вернулся на предыдущий шаг."), reply_markup=reply_markup, parse_mode="HTML")
 
 
 def _end_of_today() -> datetime:
@@ -557,6 +667,7 @@ async def plate_digits(message: Message, state: FSMContext) -> None:
         matches = await repo.search_known_plates_by_digits(digits)
     if matches:
         await _set_state(state, InspectionFlow.plate_select)
+        await state.update_data(plate_digits=digits)
         await message.answer(
             _accent(f"🚘 Нашёл номера с цифрами {digits}. Выберите нужный:"),
             reply_markup=plate_choices_keyboard(matches),
@@ -568,6 +679,13 @@ async def plate_digits(message: Message, state: FSMContext) -> None:
         _accent("🚘 В базе нет номера с такими цифрами. Введите госномер полностью."),
         parse_mode="HTML",
     )
+
+
+@router.message(InspectionFlow.plate_select, F.text)
+async def plate_select_text(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
+    await plate_digits(message, state)
 
 
 @router.callback_query(InspectionFlow.plate_select, F.data.startswith("plate_select:"))
@@ -1139,30 +1257,54 @@ async def reset_confirm(callback: CallbackQuery, state: FSMContext) -> None:
 
 async def back_button(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    previous = data.get("previous_state")
-    if not previous:
+    back_stack = list(data.get("back_stack", []))
+    if not back_stack:
         await message.answer(_accent("⬅️ Назад пока некуда."), parse_mode="HTML")
         return
     current = await state.get_state()
+    previous = back_stack.pop()
+    forward_stack = list(data.get("forward_stack", []))
+    if current:
+        forward_stack.append(current)
     await state.set_state(previous)
-    await state.update_data(previous_state=None, forward_state=current)
+    await state.update_data(
+        previous_state=back_stack[-1] if back_stack else None,
+        forward_state=forward_stack[-1] if forward_stack else None,
+        back_stack=back_stack,
+        forward_stack=forward_stack,
+    )
     await message.answer(
         _accent("⬅️ Вернулся на предыдущий шаг."),
         reply_markup=staff_reply_keyboard(can_forward=True),
         parse_mode="HTML",
     )
+    await _render_current_step(message, state, previous)
 
 
 async def forward_button(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    forward = data.get("forward_state")
-    if not forward:
+    forward_stack = list(data.get("forward_stack", []))
+    if not forward_stack:
         await message.answer(_accent("➡️ Вперёд пока некуда."), parse_mode="HTML")
         return
     current = await state.get_state()
+    forward = forward_stack.pop()
+    back_stack = list(data.get("back_stack", []))
+    if current:
+        back_stack.append(current)
     await state.set_state(forward)
-    await state.update_data(previous_state=current, forward_state=None)
-    await message.answer(_accent("➡️ Вернулся вперёд."), reply_markup=staff_reply_keyboard(), parse_mode="HTML")
+    await state.update_data(
+        previous_state=back_stack[-1] if back_stack else None,
+        forward_state=forward_stack[-1] if forward_stack else None,
+        back_stack=back_stack,
+        forward_stack=forward_stack,
+    )
+    await message.answer(
+        _accent("➡️ Вернулся вперёд."),
+        reply_markup=staff_reply_keyboard(can_forward=bool(forward_stack)),
+        parse_mode="HTML",
+    )
+    await _render_current_step(message, state, forward)
 
 
 @router.message(Command("cancel"))
