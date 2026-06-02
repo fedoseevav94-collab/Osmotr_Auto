@@ -90,6 +90,17 @@ async def _active_repo():
     return session_scope(_sessionmaker())
 
 
+def _set_inspection_actor(
+    inspection,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+) -> None:
+    inspection.telegram_user_id = user_id
+    inspection.telegram_username = username
+    inspection.telegram_name = full_name
+
+
 def _state_value(value) -> str | None:
     if value is None:
         return None
@@ -289,6 +300,18 @@ async def _handle_control_text(message: Message, state: FSMContext) -> bool:
     return False
 
 
+def _callback_actor(callback: CallbackQuery) -> dict[str, object]:
+    return {
+        "actor_user_id": callback.from_user.id,
+        "actor_username": callback.from_user.username,
+        "actor_full_name": callback.from_user.full_name,
+    }
+
+
+async def _remember_callback_actor(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(**_callback_actor(callback))
+
+
 async def _get_or_create_active(
     message: Message,
     user_id: int | None = None,
@@ -444,7 +467,12 @@ async def start_new_inspection(
 ) -> None:
     inspection_id = await _get_or_create_active(message, user_id=user_id, username=username, full_name=full_name)
     await _set_state(state, InspectionFlow.choosing_scenario)
-    await state.update_data(inspection_id=inspection_id)
+    await state.update_data(
+        inspection_id=inspection_id,
+        actor_user_id=user_id if user_id is not None else message.from_user.id,
+        actor_username=username if username is not None else message.from_user.username,
+        actor_full_name=full_name if full_name is not None else message.from_user.full_name,
+    )
     await message.answer(
         _accent("🧭 Рабочие кнопки осмотра закреплены ниже."),
         reply_markup=staff_reply_keyboard(),
@@ -611,6 +639,7 @@ async def send_stats_today(message: Message) -> None:
 
 @router.callback_query(InspectionFlow.choosing_scenario, F.data.startswith("scenario:"))
 async def choose_scenario(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     scenario = Scenario(callback.data.split(":", 1)[1])
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -633,6 +662,7 @@ async def choose_scenario(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.accident_guilt, F.data.startswith("dtp:"))
 async def accident_guilt(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     value = callback.data.split(":", 1)[1]
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -690,6 +720,7 @@ async def plate_select_text(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.plate_select, F.data.startswith("plate_select:"))
 async def plate_select(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     value = callback.data.split(":", 1)[1]
     await callback.answer()
     if value == "manual":
@@ -813,6 +844,7 @@ async def ask_damage(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.damage_question, F.data.startswith("damage:"))
 async def damage_question(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     has_damage_value = callback.data.endswith(":yes")
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -855,6 +887,7 @@ async def damage_photo(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.damage_photos, F.data == "damage_photos_done")
 async def damage_photos_done(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
@@ -911,6 +944,7 @@ async def ask_score(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.score, F.data.startswith("score:"))
 async def score(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     _, prefix, raw_score = callback.data.split(":")
     score_value = int(raw_score)
     data = await state.get_data()
@@ -985,6 +1019,7 @@ async def maybe_ask_driver_remarks_or_continue(message: Message, state: FSMConte
 
 @router.callback_query(InspectionFlow.driver_remarks, F.data.startswith("driver_remarks:"))
 async def driver_remarks(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     value = callback.data.split(":", 1)[1]
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -1061,6 +1096,7 @@ async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.tire_type, F.data.startswith("tire_type:"))
 async def tire_type(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     value = callback.data.split(":", 1)[1]
     if value not in TIRE_TYPES:
         await callback.answer("Выберите тип резины кнопкой.", show_alert=True)
@@ -1104,6 +1140,7 @@ async def tire_photo_required(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(InspectionFlow.tire_score, F.data.startswith("tire_score:"))
 async def tire_score(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remember_callback_actor(callback, state)
     score_value = int(callback.data.split(":", 1)[1])
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -1145,9 +1182,18 @@ async def tire_comment(message: Message, state: FSMContext) -> None:
 async def finish_inspection(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(InspectionFlow.publishing)
+    actor_user_id = data.get("actor_user_id") or message.from_user.id
+    actor_username = data.get("actor_username") or message.from_user.username
+    actor_full_name = data.get("actor_full_name") or message.from_user.full_name
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
+        _set_inspection_actor(
+            inspection,
+            int(actor_user_id),
+            str(actor_username) if actor_username else None,
+            str(actor_full_name) if actor_full_name else None,
+        )
         errors = validate_completion(inspection)
         if errors:
             await message.answer("⛔ <b>Осмотр нельзя завершить:</b>\n" + "\n".join(f"- {escape(error)}" for error in errors), parse_mode="HTML")
@@ -1158,7 +1204,7 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
         message_id = await publish_to_fp(message.bot, inspection, _settings().fp_chat_id)
         inspection.fp_chat_id = _settings().fp_chat_id
         inspection.fp_message_id = message_id
-        await repo.log_action(inspection, "PUBLISH_FP", message.from_user.id, message.from_user.username)
+        await repo.log_action(inspection, "PUBLISH_FP", int(actor_user_id), str(actor_username) if actor_username else None)
     await state.clear()
     await message.answer(
         _accent("✅ Готово. Итог осмотра опубликован в ФП."),

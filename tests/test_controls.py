@@ -1,5 +1,6 @@
 from app.handlers import (
     _set_state,
+    _set_inspection_actor,
     back_button,
     dashboard_photo_required,
     forward_button,
@@ -7,6 +8,7 @@ from app.handlers import (
     plate_photo_required,
     tire_photo_required,
 )
+from app.models import InspectionSession
 from app.states import InspectionFlow
 
 
@@ -96,3 +98,18 @@ async def test_back_and_forward_keep_step_history(monkeypatch) -> None:
     await forward_button(message, state)
     assert state.current == InspectionFlow.plate_select.state
     assert rendered[-1] == InspectionFlow.plate_select.state
+
+
+def test_inspection_actor_replaces_bot_identity() -> None:
+    inspection = InspectionSession(
+        telegram_user_id=8733424067,
+        telegram_username="Osmotr_auto_STAX_bot",
+        telegram_name="STAX Осмотр",
+        status="DRAFT",
+    )
+
+    _set_inspection_actor(inspection, 123, "real_inspector", "Real Inspector")
+
+    assert inspection.telegram_user_id == 123
+    assert inspection.telegram_username == "real_inspector"
+    assert inspection.telegram_name == "Real Inspector"
