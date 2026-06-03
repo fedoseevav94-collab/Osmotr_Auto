@@ -332,12 +332,9 @@ async def damage_control_message(message: Message) -> None:
     text = (message.text or "").strip()
     if not text or not message.from_user:
         return
-    username = (message.from_user.username or "").lstrip("@").lower()
-
     async with session_scope(settings.sessionmaker) as session:
-        if username == settings.settings.service_username.lstrip("@").lower():
-            if await _record_service_response(session, message, text):
-                return
+        if await _record_service_response(session, message, text, settings.settings.service_username):
+            return
 
         case = await session.scalar(
             select(DamageControlCase)
@@ -517,6 +514,15 @@ def parse_payment_amount(text: str) -> int | None:
         return None
     amount = int(value * multiplier)
     return amount if amount > 0 else None
+
+
+def parse_service_estimate_amount(text: str) -> int | None:
+    normalized = " ".join(text.lower().replace("ё", "е").strip().split())
+    if not normalized or "?" in normalized:
+        return None
+    if not re.fullmatch(r"\d+(?:[\s.]?\d{3})*(?:[,.]\d+)?\s*(?:тыс|т\.?р|к|р|руб|руб\.)?", normalized):
+        return None
+    return parse_payment_amount(normalized)
 
 
 def damage_control_keyboard(case_id: int, category: str) -> InlineKeyboardMarkup:
@@ -810,31 +816,59 @@ async def _ask_no_charge_comment(bot: Bot, case: DamageControlCase, username: st
     )
 
 
-async def _record_service_response(session: AsyncSession, message: Message, text: str) -> bool:
+async def _record_service_response(
+    session: AsyncSession,
+    message: Message,
+    text: str,
+    service_username: str,
+) -> bool:
     case: DamageControlCase | None = None
     if message.reply_to_message:
+        username = (message.from_user.username or "").lstrip("@").lower() if message.from_user else ""
+        service_username = service_username.lstrip("@").lower()
+        reply_message_id = message.reply_to_message.message_id
+        amount = parse_service_estimate_amount(text)
+        service_request_match = (
+            (DamageControlCase.service_request_chat_id == message.chat.id)
+            & (DamageControlCase.service_request_message_id == reply_message_id)
+        )
+        original_report_match = (DamageControlCase.fp_chat_id == message.chat.id) & (
+            DamageControlCase.fp_message_id == reply_message_id
+        )
+        if amount is None:
+            original_report_match = original_report_match & (username == service_username)
         case = await session.scalar(
             select(DamageControlCase)
             .where(
-                (
-                    (DamageControlCase.fp_chat_id == message.chat.id)
-                    | (DamageControlCase.service_request_chat_id == message.chat.id)
-                ),
-                (
-                    (DamageControlCase.fp_message_id == message.reply_to_message.message_id)
-                    | (DamageControlCase.service_request_message_id == message.reply_to_message.message_id)
-                ),
+                service_request_match | original_report_match,
                 DamageControlCase.status.not_in(FINAL_STATUSES),
             )
             .order_by(DamageControlCase.created_at.desc())
         )
     if case is None:
         return False
+    if (
+        message.from_user
+        and case.waiting_comment_user_id == message.from_user.id
+        and case.status
+        in {
+            WAITING_CLOSE_COMMENT,
+            WAITING_DRIVER_NAME,
+            WAITING_PAYMENT_TYPE,
+            WAITING_DISPATCHER_COMMENT,
+            WAITING_PAYMENT_AMOUNT,
+        }
+    ):
+        return False
     if case.service_received_at:
         return True
+    amount = parse_service_estimate_amount(text)
+    if amount is None:
+        return False
     case.service_received_at = _utcnow()
     case.service_response_text = text
-    case.service_amount = parse_payment_amount(text)
+    case.service_amount = amount
+    case.service_reminder_due_at = None
     if case.status == WAITING_SERVICE_AMOUNT:
         case.status = SERVICE_AMOUNT_RECEIVED
     amount_text = f": {case.service_amount}" if case.service_amount else ""

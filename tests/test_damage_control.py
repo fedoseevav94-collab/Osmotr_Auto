@@ -11,6 +11,7 @@ from app.damage_control import (
     classify_close_comment,
     manager_prompt_text,
     parse_payment_amount,
+    parse_service_estimate_amount,
     payment_type_keyboard,
     parse_manager_days_off,
     valid_no_charge_reason,
@@ -57,6 +58,14 @@ def test_payment_amount_parsing() -> None:
     assert parse_payment_amount("5.000") == 5000
     assert parse_payment_amount("5 тыс") == 5000
     assert parse_payment_amount("ок") is None
+
+
+def test_service_estimate_amount_must_be_plain_amount() -> None:
+    assert parse_service_estimate_amount("40000") == 40000
+    assert parse_service_estimate_amount("40 000") == 40000
+    assert parse_service_estimate_amount("40 тыс") == 40000
+    assert parse_service_estimate_amount("40000?") is None
+    assert parse_service_estimate_amount("думаю 40000") is None
 
 
 def test_no_charge_reason_must_be_meaningful() -> None:
