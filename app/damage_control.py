@@ -29,6 +29,7 @@ WAITING_MANAGER_ACTION = "WAITING_MANAGER_ACTION"
 WAITING_CLOSE_COMMENT = "WAITING_CLOSE_COMMENT"
 WAITING_DRIVER_NAME = "WAITING_DRIVER_NAME"
 WAITING_PAYMENT_TYPE = "WAITING_PAYMENT_TYPE"
+WAITING_DISPATCHER_COMMENT = "WAITING_DISPATCHER_COMMENT"
 WAITING_PAYMENT_AMOUNT = "WAITING_PAYMENT_AMOUNT"
 WAITING_SERVICE_AMOUNT = "WAITING_SERVICE_AMOUNT"
 SERVICE_AMOUNT_RECEIVED = "SERVICE_AMOUNT_RECEIVED"
@@ -81,6 +82,7 @@ PAYMENT_TYPE_LABELS = {
     "qr": "Оплата по QR коду",
     "terminal": "Оплата по терминалу",
     "deposit": "Списание с депозита",
+    "dispatcher_balance": "С баланса диспетчерской",
 }
 
 PAYMENT_TYPE_CLOSE_STATUS = {
@@ -90,6 +92,7 @@ PAYMENT_TYPE_CLOSE_STATUS = {
     "qr": "CLOSED_PAID_CASH",
     "terminal": "CLOSED_PAID_CASH",
     "deposit": "CLOSED_BALANCE_CHARGED",
+    "dispatcher_balance": "CLOSED_BALANCE_CHARGED",
 }
 
 NO_CHARGE_PAYMENT_TYPE = "Без списания"
@@ -204,6 +207,7 @@ async def process_due_damage_control(
                     WAITING_CLOSE_COMMENT,
                     WAITING_DRIVER_NAME,
                     WAITING_PAYMENT_TYPE,
+                    WAITING_DISPATCHER_COMMENT,
                     WAITING_PAYMENT_AMOUNT,
                 }:
                     await _send_pending_closure_reminder(bot, case, settings, case.reminders_sent)
@@ -245,7 +249,13 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
-        if case.status in {WAITING_CLOSE_COMMENT, WAITING_DRIVER_NAME, WAITING_PAYMENT_TYPE, WAITING_PAYMENT_AMOUNT}:
+        if case.status in {
+            WAITING_CLOSE_COMMENT,
+            WAITING_DRIVER_NAME,
+            WAITING_PAYMENT_TYPE,
+            WAITING_DISPATCHER_COMMENT,
+            WAITING_PAYMENT_AMOUNT,
+        }:
             await callback.answer("Уже жду данные по закрытию.", show_alert=True)
             return
         if action == "pay":
@@ -258,11 +268,15 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
             await callback.answer()
             return
         if action == "paytype" and payment_type in PAYMENT_TYPE_LABELS:
-            case.status = WAITING_PAYMENT_AMOUNT
             case.waiting_comment_user_id = callback.from_user.id
             case.waiting_comment_username = callback.from_user.username
             case.payment_type = payment_type
-            await _ask_payment_amount(callback.bot, case, callback.from_user.username, payment_type)
+            if payment_type == "dispatcher_balance":
+                case.status = WAITING_DISPATCHER_COMMENT
+                await _ask_dispatcher_comment(callback.bot, case, callback.from_user.username)
+            else:
+                case.status = WAITING_PAYMENT_AMOUNT
+                await _ask_payment_amount(callback.bot, case, callback.from_user.username, payment_type)
             with contextlib.suppress(Exception):
                 await callback.message.edit_reply_markup(reply_markup=None)
             await callback.answer()
@@ -347,6 +361,33 @@ async def damage_control_message(message: Message) -> None:
             case = await session.scalar(
                 select(DamageControlCase)
                 .where(
+                    DamageControlCase.status == WAITING_DISPATCHER_COMMENT,
+                    DamageControlCase.waiting_comment_user_id == message.from_user.id,
+                )
+                .options(selectinload(DamageControlCase.inspection))
+                .order_by(DamageControlCase.updated_at.desc(), DamageControlCase.id.desc())
+            )
+            if case:
+                if len(text) < 3:
+                    await message.bot.send_message(
+                        chat_id=message.chat.id,
+                        text="Напишите название диспетчерской.",
+                        reply_to_message_id=message.message_id,
+                        allow_sending_without_reply=True,
+                    )
+                    return
+                case.close_comment = text
+                case.status = WAITING_PAYMENT_AMOUNT
+                await _ask_payment_amount(
+                    message.bot,
+                    case,
+                    message.from_user.username,
+                    case.payment_type or "dispatcher_balance",
+                )
+                return
+            case = await session.scalar(
+                select(DamageControlCase)
+                .where(
                     DamageControlCase.status == WAITING_PAYMENT_AMOUNT,
                     DamageControlCase.waiting_comment_user_id == message.from_user.id,
                 )
@@ -371,7 +412,7 @@ async def damage_control_message(message: Message) -> None:
                 message.from_user.full_name,
                 message.from_user.username,
                 PAYMENT_TYPE_CLOSE_STATUS.get(payment_type, "CLOSED_PAID_CASH"),
-                f"{PAYMENT_TYPE_LABELS.get(payment_type, payment_type)}: {amount}",
+                case.close_comment or f"{PAYMENT_TYPE_LABELS.get(payment_type, payment_type)}: {amount}",
                 payment_type=PAYMENT_TYPE_LABELS.get(payment_type, payment_type),
                 payment_amount=amount,
             )
@@ -679,6 +720,15 @@ async def _ask_payment_amount(
     )
 
 
+async def _ask_dispatcher_comment(bot: Bot, case: DamageControlCase, username: str | None) -> None:
+    mention = f"@{username.lstrip('@')}" if username else "Менеджер"
+    await _send_case_followup(
+        bot,
+        case,
+        f"{mention}, напишите название диспетчерской.",
+    )
+
+
 async def _send_pending_closure_reminder(
     bot: Bot,
     case: DamageControlCase,
@@ -691,6 +741,8 @@ async def _send_pending_closure_reminder(
         step = "напишите ФИО водителя"
     elif case.status == WAITING_PAYMENT_TYPE:
         step = "выберите тип оплаты/списания"
+    elif case.status == WAITING_DISPATCHER_COMMENT:
+        step = "напишите название диспетчерской"
     elif case.status == WAITING_PAYMENT_AMOUNT:
         step = "напишите сумму списания/оплаты"
     elif case.status == WAITING_CLOSE_COMMENT:
@@ -878,6 +930,8 @@ def _pending_step_text(case: DamageControlCase) -> str:
         return "менеджер не указал ФИО водителя"
     if case.status == WAITING_PAYMENT_TYPE:
         return "менеджер не выбрал тип списания"
+    if case.status == WAITING_DISPATCHER_COMMENT:
+        return "менеджер не указал название диспетчерской"
     if case.status == WAITING_PAYMENT_AMOUNT:
         return "менеджер не указал сумму списания"
     if case.status == WAITING_CLOSE_COMMENT:

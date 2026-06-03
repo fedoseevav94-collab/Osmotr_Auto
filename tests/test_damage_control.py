@@ -4,6 +4,7 @@ from pathlib import Path
 from app.config import Settings
 from app.damage_control import (
     WAITING_DRIVER_NAME,
+    WAITING_DISPATCHER_COMMENT,
     WAITING_PAYMENT_AMOUNT,
     WAITING_PAYMENT_TYPE,
     active_manager_mentions,
@@ -72,12 +73,14 @@ def test_payment_type_keyboard_uses_business_labels() -> None:
         "Оплата по QR коду",
         "Оплата по терминалу",
         "Списание с депозита",
+        "С баланса диспетчерской",
     ]
 
 
 def test_payment_flow_has_required_driver_name_step() -> None:
     assert WAITING_DRIVER_NAME == "WAITING_DRIVER_NAME"
     assert WAITING_PAYMENT_TYPE == "WAITING_PAYMENT_TYPE"
+    assert WAITING_DISPATCHER_COMMENT == "WAITING_DISPATCHER_COMMENT"
     assert WAITING_PAYMENT_AMOUNT == "WAITING_PAYMENT_AMOUNT"
 
 
@@ -85,6 +88,9 @@ def test_pending_step_text_names_manager_waiting_action() -> None:
     case = DamageControlCase(status=WAITING_PAYMENT_AMOUNT)
 
     assert _pending_step_text(case) == "менеджер не указал сумму списания"
+
+    case.status = WAITING_DISPATCHER_COMMENT
+    assert _pending_step_text(case) == "менеджер не указал название диспетчерской"
 
 
 def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:
