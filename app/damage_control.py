@@ -250,14 +250,9 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
-        if case.status in {
-            WAITING_CLOSE_COMMENT,
-            WAITING_DRIVER_NAME,
-            WAITING_PAYMENT_TYPE,
-            WAITING_DISPATCHER_COMMENT,
-            WAITING_PAYMENT_AMOUNT,
-        }:
-            await callback.answer("Уже жду данные по закрытию.", show_alert=True)
+        waiting_error = _waiting_callback_error(case, action, payment_type, callback.from_user.id)
+        if waiting_error:
+            await callback.answer(waiting_error, show_alert=True)
             return
         if action == "pay":
             case.status = WAITING_DRIVER_NAME
@@ -306,6 +301,27 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
             await callback.answer("Закрыто.")
             return
     await callback.answer("Не понял действие.", show_alert=True)
+
+
+def _waiting_callback_error(
+    case: DamageControlCase,
+    action: str,
+    payment_type: str | None,
+    user_id: int,
+) -> str | None:
+    if case.status == WAITING_PAYMENT_TYPE and action == "paytype" and payment_type in PAYMENT_TYPE_LABELS:
+        if case.waiting_comment_user_id and case.waiting_comment_user_id != user_id:
+            return "Тип списания выбирает менеджер, который начал закрытие."
+        return None
+    if case.status in {
+        WAITING_CLOSE_COMMENT,
+        WAITING_DRIVER_NAME,
+        WAITING_PAYMENT_TYPE,
+        WAITING_DISPATCHER_COMMENT,
+        WAITING_PAYMENT_AMOUNT,
+    }:
+        return "Уже жду данные по закрытию."
+    return None
 
 
 @router.message(F.text)

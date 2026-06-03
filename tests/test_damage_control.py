@@ -16,6 +16,7 @@ from app.damage_control import (
     valid_no_charge_reason,
     _pending_step_text,
     _first_due_at,
+    _waiting_callback_error,
 )
 from app.models import DamageControlCase, InspectionSession
 
@@ -82,6 +83,19 @@ def test_payment_flow_has_required_driver_name_step() -> None:
     assert WAITING_PAYMENT_TYPE == "WAITING_PAYMENT_TYPE"
     assert WAITING_DISPATCHER_COMMENT == "WAITING_DISPATCHER_COMMENT"
     assert WAITING_PAYMENT_AMOUNT == "WAITING_PAYMENT_AMOUNT"
+
+
+def test_payment_type_button_is_allowed_after_driver_name() -> None:
+    case = DamageControlCase(
+        status=WAITING_PAYMENT_TYPE,
+        waiting_comment_user_id=42,
+    )
+
+    assert _waiting_callback_error(case, "paytype", "cashbox", 42) is None
+    assert _waiting_callback_error(case, "paytype", "cashbox", 7) == (
+        "Тип списания выбирает менеджер, который начал закрытие."
+    )
+    assert _waiting_callback_error(case, "pay", None, 42) == "Уже жду данные по закрытию."
 
 
 def test_pending_step_text_names_manager_waiting_action() -> None:
