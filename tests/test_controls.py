@@ -1,4 +1,5 @@
 from app.handlers import (
+    _human_actor_for_finish,
     _set_state,
     _set_inspection_actor,
     back_button,
@@ -36,6 +37,19 @@ class FakeState:
 
     async def update_data(self, **kwargs) -> None:
         self.data.update(kwargs)
+
+
+class FakeUser:
+    def __init__(self, user_id: int, username: str | None, full_name: str, is_bot: bool = False) -> None:
+        self.id = user_id
+        self.username = username
+        self.full_name = full_name
+        self.is_bot = is_bot
+
+
+class FakeActorMessage:
+    def __init__(self, user: FakeUser) -> None:
+        self.from_user = user
 
 
 async def test_back_button_is_handled_while_waiting_for_required_photos(monkeypatch) -> None:
@@ -113,3 +127,19 @@ def test_inspection_actor_replaces_bot_identity() -> None:
     assert inspection.telegram_user_id == 123
     assert inspection.telegram_username == "real_inspector"
     assert inspection.telegram_name == "Real Inspector"
+
+
+def test_finish_actor_does_not_fall_back_to_bot_message_user() -> None:
+    inspection = InspectionSession(
+        telegram_user_id=123,
+        telegram_username=None,
+        telegram_name="Андрей",
+        status="DRAFT",
+    )
+    message = FakeActorMessage(FakeUser(999, "Osmotr_auto_STAX_bot", "STAX Осмотр", is_bot=True))
+
+    actor_id, username, full_name = _human_actor_for_finish({}, inspection, message)
+
+    assert actor_id == 123
+    assert username is None
+    assert full_name == "Андрей"

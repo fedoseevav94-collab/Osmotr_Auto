@@ -12,6 +12,8 @@ from app.damage_control import (
     parse_payment_amount,
     payment_type_keyboard,
     parse_manager_days_off,
+    valid_no_charge_reason,
+    _pending_step_text,
     _first_due_at,
 )
 from app.models import DamageControlCase, InspectionSession
@@ -55,6 +57,11 @@ def test_payment_amount_parsing() -> None:
     assert parse_payment_amount("ок") is None
 
 
+def test_no_charge_reason_must_be_meaningful() -> None:
+    assert not valid_no_charge_reason("ок")
+    assert valid_no_charge_reason("повреждение было ранее")
+
+
 def test_payment_type_keyboard_uses_business_labels() -> None:
     labels = [button.text for row in payment_type_keyboard(1).inline_keyboard for button in row]
 
@@ -72,6 +79,12 @@ def test_payment_flow_has_required_driver_name_step() -> None:
     assert WAITING_DRIVER_NAME == "WAITING_DRIVER_NAME"
     assert WAITING_PAYMENT_TYPE == "WAITING_PAYMENT_TYPE"
     assert WAITING_PAYMENT_AMOUNT == "WAITING_PAYMENT_AMOUNT"
+
+
+def test_pending_step_text_names_manager_waiting_action() -> None:
+    case = DamageControlCase(status=WAITING_PAYMENT_AMOUNT)
+
+    assert _pending_step_text(case) == "менеджер не указал сумму списания"
 
 
 def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:

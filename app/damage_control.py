@@ -92,6 +92,8 @@ PAYMENT_TYPE_CLOSE_STATUS = {
     "deposit": "CLOSED_BALANCE_CHARGED",
 }
 
+NO_CHARGE_PAYMENT_TYPE = "Без списания"
+
 
 def register_damage_control(dp) -> None:
     dp.include_router(router)
@@ -216,6 +218,8 @@ async def process_due_damage_control(
                     )
                 case.last_reminder_at = now
                 case.first_reminder_due_at = now + timedelta(minutes=settings.reminder_interval_minutes)
+                if case.reminders_sent >= settings.max_reminders:
+                    await _escalate(bot, session, case, settings)
 
 
 @router.callback_query(F.data.startswith("damage_control:"))
@@ -241,7 +245,7 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
-        if case.status in {WAITING_CLOSE_COMMENT, WAITING_DRIVER_NAME, WAITING_PAYMENT_AMOUNT}:
+        if case.status in {WAITING_CLOSE_COMMENT, WAITING_DRIVER_NAME, WAITING_PAYMENT_TYPE, WAITING_PAYMENT_AMOUNT}:
             await callback.answer("Уже жду данные по закрытию.", show_alert=True)
             return
         if action == "pay":
@@ -265,13 +269,14 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
             return
         if action == "nocharge":
             if case.category == CHARGE_REQUIRED:
-                case.status = WAITING_CLOSE_COMMENT
+                case.status = WAITING_DRIVER_NAME
                 case.waiting_comment_user_id = callback.from_user.id
                 case.waiting_comment_username = callback.from_user.username
-                await _ask_no_charge_comment(callback.bot, case, callback.from_user.username)
+                case.payment_type = NO_CHARGE_PAYMENT_TYPE
+                await _ask_driver_name(callback.bot, case, callback.from_user.username)
                 with contextlib.suppress(Exception):
                     await callback.message.edit_reply_markup(reply_markup=None)
-                await callback.answer("Жду причину без списания.")
+                await callback.answer("Жду ФИО водителя.")
                 return
             await _close_case(
                 callback.bot,
@@ -332,8 +337,12 @@ async def damage_control_message(message: Message) -> None:
                     )
                     return
                 case.driver_name = text
-                case.status = WAITING_PAYMENT_TYPE
-                await _ask_payment_type(message.bot, case, message.from_user.username)
+                if case.payment_type == NO_CHARGE_PAYMENT_TYPE:
+                    case.status = WAITING_CLOSE_COMMENT
+                    await _ask_no_charge_comment(message.bot, case, message.from_user.username)
+                else:
+                    case.status = WAITING_PAYMENT_TYPE
+                    await _ask_payment_type(message.bot, case, message.from_user.username)
                 return
             case = await session.scalar(
                 select(DamageControlCase)
@@ -365,6 +374,26 @@ async def damage_control_message(message: Message) -> None:
                 f"{PAYMENT_TYPE_LABELS.get(payment_type, payment_type)}: {amount}",
                 payment_type=PAYMENT_TYPE_LABELS.get(payment_type, payment_type),
                 payment_amount=amount,
+            )
+            return
+        if case.payment_type == NO_CHARGE_PAYMENT_TYPE:
+            if not valid_no_charge_reason(text):
+                await message.bot.send_message(
+                    chat_id=message.chat.id,
+                    text="Напишите причину без списания подробнее.",
+                    reply_to_message_id=message.message_id,
+                    allow_sending_without_reply=True,
+                )
+                return
+            await _close_case(
+                message.bot,
+                case,
+                message.from_user.full_name,
+                message.from_user.username,
+                "CLOSED_NO_CHARGE_WITH_REASON",
+                text,
+                payment_type=NO_CHARGE_PAYMENT_TYPE,
+                payment_amount=0,
             )
             return
         close_type = classify_close_comment(text)
@@ -406,6 +435,13 @@ def classify_close_comment(text: str) -> str | None:
     if any(marker in normalized for marker in ("оплатил", "оплачено", "налич", "перевод", "через qr", " qr")):
         return "CLOSED_PAID_CASH"
     return None
+
+
+def valid_no_charge_reason(text: str) -> bool:
+    normalized = " ".join(text.lower().replace("ё", "е").split())
+    if normalized in {"ок", "увидел", "принял", "посмотрю", "потом", "разберусь", "в работе"}:
+        return False
+    return len(normalized) >= 8 and len(normalized.split()) >= 2
 
 
 def parse_payment_amount(text: str) -> int | None:
@@ -783,15 +819,18 @@ def close_summary_text(
     plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
     dt = case.inspection.completed_at or case.inspection.updated_at or case.created_at
     action = "проверку без списания"
-    if case.close_type != CLOSED_NO_CHARGE_REQUIRED:
+    if case.close_type == "CLOSED_NO_CHARGE_WITH_REASON":
+        action = "решение без списания"
+    elif case.close_type != CLOSED_NO_CHARGE_REQUIRED:
         action = "оплату/списание по повреждениям"
-    if case.payment_type and case.payment_amount:
+    if case.payment_type and case.payment_amount is not None:
         return (
             f"Сотрудник {actor_name}{username} зафиксировал {action} на авто {plate}.\n"
             f"Дата и время осмотра: {dt:%d.%m.%Y %H:%M}\n"
             f"Водитель: {case.driver_name or 'не указан'}\n"
             f"Тип оплаты: {PAYMENT_TYPE_LABELS.get(case.payment_type, case.payment_type)}\n"
-            f"Сумма: {case.payment_amount}"
+            f"Сумма: {case.payment_amount}\n"
+            f"Комментарий: {comment}"
         )
     return (
         f"Сотрудник {actor_name}{username} зафиксировал {action} на авто {plate}.\n"
@@ -805,9 +844,18 @@ async def _escalate(bot: Bot, session: AsyncSession, case: DamageControlCase, se
     case.escalated_at = _utcnow()
     case.first_reminder_due_at = None
     plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
+    responsible = f"@{case.waiting_comment_username}" if case.waiting_comment_username else active_manager_mentions(
+        settings.manager_days_off,
+        _local_now(settings).weekday(),
+    )
     text = (
         "Повреждение после осмотра не закрыто после 3 напоминаний.\n\n"
         f"Авто: {plate}\n"
+        f"Ответственный: {responsible}\n"
+        f"Что не сделано: {_pending_step_text(case)}\n"
+        f"ФИО водителя: {case.driver_name or 'не указано'}\n"
+        f"Тип списания: {case.payment_type or 'не выбран'}\n"
+        f"Сумма Нора: {case.service_amount if case.service_amount is not None else 'не указана'}\n"
         f"Статус: {case.status}"
     )
     supervisor_id = await user_id_by_username(session, settings.supervisor_username)
@@ -823,6 +871,20 @@ async def _escalate(bot: Bot, session: AsyncSession, case: DamageControlCase, se
         reply_to_message_id=case.fp_message_id,
         allow_sending_without_reply=False,
     )
+
+
+def _pending_step_text(case: DamageControlCase) -> str:
+    if case.status == WAITING_DRIVER_NAME:
+        return "менеджер не указал ФИО водителя"
+    if case.status == WAITING_PAYMENT_TYPE:
+        return "менеджер не выбрал тип списания"
+    if case.status == WAITING_PAYMENT_AMOUNT:
+        return "менеджер не указал сумму списания"
+    if case.status == WAITING_CLOSE_COMMENT:
+        return "менеджер не написал комментарий"
+    if not case.service_received_at:
+        return "сервис не дал оценку/сумму или менеджеры не закрыли повреждение"
+    return "менеджеры не закрыли повреждение"
 
 
 def _same_chat(first: int, second: int) -> bool:

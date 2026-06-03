@@ -41,6 +41,7 @@ CHARGE_HEADERS = [
     "Тип повреждений",
     "Сумма списания",
     "Тип списания",
+    "Комментарий",
 ]
 
 
@@ -150,8 +151,9 @@ def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
                 row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "",
                 row.driver_name or "",
                 row.damage_description or inspection.damage_description or "",
-                row.payment_amount or "",
+                row.payment_amount if row.payment_amount is not None else "",
                 row.payment_type or "",
+                row.close_comment or "",
             ]
         )
     _autosize(ws)

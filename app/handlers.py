@@ -104,6 +104,32 @@ def _set_inspection_actor(
     inspection.telegram_name = full_name
 
 
+def _is_bot_username(username: str | None) -> bool:
+    return bool(username) and username.lower().endswith("bot")
+
+
+def _human_actor_for_finish(data: dict, inspection, message: Message) -> tuple[int, str | None, str | None]:
+    actor_user_id = data.get("actor_user_id")
+    actor_username = data.get("actor_username")
+    actor_full_name = data.get("actor_full_name")
+
+    if _is_bot_username(str(actor_username) if actor_username else None):
+        actor_username = None
+        actor_full_name = None
+
+    if actor_user_id and (actor_username or actor_full_name):
+        return int(actor_user_id), str(actor_username) if actor_username else None, str(actor_full_name) if actor_full_name else None
+
+    if inspection.telegram_user_id and not _is_bot_username(inspection.telegram_username):
+        return inspection.telegram_user_id, inspection.telegram_username, inspection.telegram_name
+
+    from_user = message.from_user
+    if from_user and not from_user.is_bot:
+        return from_user.id, from_user.username, from_user.full_name
+
+    return inspection.telegram_user_id, None, inspection.telegram_name
+
+
 def _state_value(value) -> str | None:
     if value is None:
         return None
@@ -1210,17 +1236,15 @@ async def tire_comment(message: Message, state: FSMContext) -> None:
 async def finish_inspection(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(InspectionFlow.publishing)
-    actor_user_id = data.get("actor_user_id") or message.from_user.id
-    actor_username = data.get("actor_username") or message.from_user.username
-    actor_full_name = data.get("actor_full_name") or message.from_user.full_name
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
+        actor_user_id, actor_username, actor_full_name = _human_actor_for_finish(data, inspection, message)
         _set_inspection_actor(
             inspection,
             int(actor_user_id),
-            str(actor_username) if actor_username else None,
-            str(actor_full_name) if actor_full_name else None,
+            actor_username,
+            actor_full_name,
         )
         errors = validate_completion(inspection)
         if errors:

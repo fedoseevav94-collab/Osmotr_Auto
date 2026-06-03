@@ -39,4 +39,5 @@ def test_charge_export_headers_are_business_fields():
         "Тип повреждений",
         "Сумма списания",
         "Тип списания",
+        "Комментарий",
     ]
