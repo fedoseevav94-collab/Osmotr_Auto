@@ -54,7 +54,7 @@ from app.keyboards import (
 from app.publisher import build_summary, publish_to_fp
 from app.repository import InspectionRepository
 from app.states import CorrectionFlow, ExportFlow, InspectionFlow, TireCampaignFlow
-from app.utils import is_supervisor, normalize_plate
+from app.utils import PLATE_FORMAT_HINT, is_supervisor, is_valid_plate, normalize_plate
 from app.validation import has_photo, validate_completion
 from app.vehicle_registry import plate_hint, read_vehicle_rows
 
@@ -777,7 +777,14 @@ async def plate_select(callback: CallbackQuery, state: FSMContext) -> None:
         await _set_state(state, InspectionFlow.plate_text)
         await callback.message.answer(_accent("✍️ Введите госномер полностью."), parse_mode="HTML")
         return
-    await save_plate(callback.message, state, value, user_id=callback.from_user.id, username=callback.from_user.username)
+    if not await save_plate(
+        callback.message,
+        state,
+        value,
+        user_id=callback.from_user.id,
+        username=callback.from_user.username,
+    ):
+        return
     await ask_plate_photo(callback.message, state)
 
 
@@ -817,7 +824,8 @@ async def plate_photo_required(message: Message, state: FSMContext) -> None:
 async def plate_text(message: Message, state: FSMContext) -> None:
     if await _handle_control_text(message, state):
         return
-    await save_plate(message, state, message.text.strip())
+    if not await save_plate(message, state, message.text.strip()):
+        return
     await ask_plate_photo(message, state)
 
 
@@ -827,8 +835,17 @@ async def save_plate(
     plate_raw: str,
     user_id: int | None = None,
     username: str | None = None,
-) -> None:
+) -> bool:
     plate_norm = normalize_plate(plate_raw)
+    if not is_valid_plate(plate_raw):
+        await message.answer(
+            _accent("🚫 Номер не похож на госномер.")
+            + "\n"
+            + escape(PLATE_FORMAT_HINT)
+            + "\nПример: <b>О917НХ797</b> или <b>АА77777</b>.",
+            parse_mode="HTML",
+        )
+        return False
     user_id = user_id if user_id is not None else message.from_user.id
     username = username if username is not None else message.from_user.username
     data = await state.get_data()
@@ -848,6 +865,7 @@ async def save_plate(
         hint_text = f"\nНомер принят. Ближайшая подсказка из базы: {hint.plate_normalized}"
 
     await message.answer(_accent(f"✅ Номер выбран: {plate_norm}") + escape(hint_text), parse_mode="HTML")
+    return True
 
 
 async def continue_after_plate_photo(message: Message, state: FSMContext) -> None:
@@ -1298,8 +1316,14 @@ async def correct_plate_apply(message: Message, state: FSMContext) -> None:
     inspection_id = data.get("correct_inspection_id")
     plate_raw = message.text.strip()
     plate_norm = normalize_plate(plate_raw)
-    if not plate_norm:
-        await message.answer(_accent("✏️ Введите госномер текстом."), parse_mode="HTML")
+    if not is_valid_plate(plate_raw):
+        await message.answer(
+            _accent("🚫 Номер не похож на госномер.")
+            + "\n"
+            + escape(PLATE_FORMAT_HINT)
+            + "\nПример: <b>О917НХ797</b> или <b>АА77777</b>.",
+            parse_mode="HTML",
+        )
         return
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)

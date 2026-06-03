@@ -132,7 +132,12 @@ class InspectionRepository:
     async def search_known_plates_by_digits(self, digits: str, limit: int = 12) -> list[KnownVehiclePlate]:
         query = (
             select(KnownVehiclePlate)
-            .where(KnownVehiclePlate.plate_normalized.like(f"_{digits}%"))
+            .where(
+                or_(
+                    KnownVehiclePlate.plate_normalized.like(f"_{digits}%"),
+                    KnownVehiclePlate.plate_normalized.like(f"__{digits}%"),
+                )
+            )
             .order_by(KnownVehiclePlate.plate_normalized)
             .limit(limit)
         )

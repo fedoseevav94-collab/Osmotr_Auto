@@ -4,9 +4,8 @@ import logging
 import re
 from pathlib import Path
 
-from app.utils import normalize_plate
+from app.utils import STANDARD_PLATE_RE, TAXI_PLATE_RE, normalize_plate
 
-PLATE_RE = re.compile(r"[ABEKMHOPCTYX]\d{3}[ABEKMHOPCTYX]{2}\d{2,3}")
 OCR_WHITELIST = "ABEKMHOPCTYXАВЕКМНОРСТУХabekmhopctyxавекмнорстух0123456789"
 LETTER_POSITIONS = {0, 4, 5}
 LETTER_FIXES = {
@@ -28,13 +27,16 @@ DIGIT_FIXES = {
 
 def extract_plate_from_text(text: str) -> str | None:
     normalized = normalize_plate(text)
-    match = PLATE_RE.search(normalized)
+    match = re.search(r"[ABEKMHOPCTYX]\d{3}[ABEKMHOPCTYX]{2}\d{2,3}", normalized)
     if match:
         return match.group(0)
-    for size in (9, 8):
+    taxi_match = re.search(r"[ABEKMHOPCTYX]{2}\d{5,6}", normalized)
+    if taxi_match:
+        return taxi_match.group(0)
+    for size in (9, 8, 7):
         for start in range(max(len(normalized) - size + 1, 0)):
             plate = _coerce_plate_candidate(normalized[start : start + size])
-            if plate and PLATE_RE.fullmatch(plate):
+            if plate and (STANDARD_PLATE_RE.fullmatch(plate) or TAXI_PLATE_RE.fullmatch(plate)):
                 return plate
     return None
 

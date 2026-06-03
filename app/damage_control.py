@@ -190,6 +190,7 @@ async def process_due_damage_control(
             if case.status in FINAL_STATUSES:
                 continue
             if case.service_reminder_due_at and case.service_reminder_due_at <= now and not case.service_received_at:
+                await _send_service_private_reminder(bot, session, case, settings)
                 service_message = await _send_service_amount_request(bot, session, case, settings)
                 case.service_requested_at = now
                 if service_message:
@@ -648,6 +649,29 @@ async def _send_service_amount_request(
         case,
         f"@{settings.service_username} нужна оценка/сумма по повреждению. Ответьте reply к этому сообщению.",
     )
+
+
+async def _send_service_private_reminder(
+    bot: Bot,
+    session: AsyncSession,
+    case: DamageControlCase,
+    settings: Settings,
+) -> None:
+    service_user_id = await user_id_by_username(session, settings.service_username)
+    if not service_user_id:
+        logger.info("Cannot send private service reminder: @%s has not started the bot", settings.service_username)
+        return
+    plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
+    try:
+        await bot.send_message(
+            chat_id=service_user_id,
+            text=(
+                f"Нужна оценка/сумма по повреждению авто {plate}.\n"
+                "Ответьте в чате ФП reply к сообщению, где я вас отметил."
+            ),
+        )
+    except TelegramAPIError:
+        logger.exception("Failed to send private service reminder to @%s", settings.service_username)
 
 
 async def _send_manager_prompt(
