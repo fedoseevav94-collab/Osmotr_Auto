@@ -447,10 +447,21 @@ def manager_prompt_text(
         lines.append("В отчете указано, что водитель не виноват. Подтвердите проверку без списания.")
     else:
         lines.append("Нужно выбрать действие после проверки.")
-        lines += ["", f"@{settings.service_username} уже запрошен для оценки/суммы."]
+        service_status = service_status_text(case, settings)
+        lines += ["", service_status]
     if reminder_number is not None:
         lines += ["", f"Напоминание {reminder_number}/{settings.max_reminders}."]
     return "\n".join(lines)
+
+
+def service_status_text(case: DamageControlCase, settings: Settings) -> str:
+    if not case.service_received_at:
+        return f"@{settings.service_username} уже запрошен для оценки/суммы."
+    if case.service_amount:
+        return f"Оценка/сумма от @{settings.service_username} получена: {case.service_amount}."
+    if case.service_response_text:
+        return f"Оценка/сумма от @{settings.service_username} получена: {case.service_response_text}."
+    return f"Оценка/сумма от @{settings.service_username} получена."
 
 
 def service_amount_request_text(case: DamageControlCase) -> str:
@@ -583,10 +594,11 @@ async def _ask_payment_amount(
 ) -> None:
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
     label = PAYMENT_TYPE_LABELS.get(payment_type, payment_type)
+    service_hint = f"\n@Norblacksmith указал: {case.service_amount}." if case.service_amount else ""
     await _send_case_followup(
         bot,
         case,
-        f"{mention}, тип: {label}.\nНапишите сумму списания/оплаты одним сообщением.",
+        f"{mention}, тип: {label}.{service_hint}\nНапишите сумму списания/оплаты одним сообщением.",
     )
 
 
@@ -629,11 +641,14 @@ async def _record_service_response(session: AsyncSession, message: Message, text
     if case.service_received_at:
         return True
     case.service_received_at = _utcnow()
+    case.service_response_text = text
+    case.service_amount = parse_payment_amount(text)
     if case.status == WAITING_SERVICE_AMOUNT:
         case.status = SERVICE_AMOUNT_RECEIVED
+    amount_text = f": {case.service_amount}" if case.service_amount else ""
     await message.bot.send_message(
         chat_id=case.fp_chat_id,
-        text=f"Получил ответ от @{message.from_user.username or 'Norblacksmith'} по оценке/сумме повреждения.",
+        text=f"Получил ответ от @{message.from_user.username or 'Norblacksmith'} по оценке/сумме повреждения{amount_text}.",
         reply_to_message_id=case.fp_message_id,
         allow_sending_without_reply=False,
     )

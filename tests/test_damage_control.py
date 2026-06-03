@@ -95,6 +95,36 @@ def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:
     assert "Переднее крыло" not in text
 
 
+def test_manager_prompt_says_service_answer_received() -> None:
+    settings = make_settings()
+    inspection = InspectionSession(
+        id=1,
+        telegram_user_id=1,
+        status="COMPLETED",
+        scenario="Сдача",
+        plate_normalized="M671HM797",
+        has_damage=True,
+        damage_description="Вмятина",
+    )
+    case = DamageControlCase(
+        id=2,
+        inspection_id=1,
+        status="WAITING_MANAGER_ACTION",
+        category="DAMAGE_CHARGE_REQUIRED",
+        plate_normalized="M671HM797",
+        fp_chat_id=-1001905865504,
+        fp_message_id=123,
+        damage_description="Вмятина",
+        service_received_at=datetime(2026, 6, 3, 6, 52),
+        service_amount=10000,
+    )
+
+    text = manager_prompt_text(case, inspection, settings, reminder_number=1)
+
+    assert "Оценка/сумма от @Norblacksmith получена: 10000." in text
+    assert "уже запрошен" not in text
+
+
 def test_first_due_moves_late_report_to_next_working_morning() -> None:
     settings = make_settings()
     created_at = datetime(2026, 6, 2, 15, 50, tzinfo=UTC)

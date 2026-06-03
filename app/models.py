@@ -152,6 +152,8 @@ class DamageControlCase(Base):
     service_request_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     service_request_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     service_received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    service_response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    service_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     service_reminder_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     waiting_comment_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     waiting_comment_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
