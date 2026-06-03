@@ -8,6 +8,7 @@ from app.damage_control import (
     WAITING_PAYMENT_AMOUNT,
     WAITING_PAYMENT_TYPE,
     active_manager_mentions,
+    back_keyboard,
     classify_close_comment,
     manager_prompt_text,
     parse_payment_amount,
@@ -84,7 +85,16 @@ def test_payment_type_keyboard_uses_business_labels() -> None:
         "Оплата по терминалу",
         "Списание с депозита",
         "С баланса диспетчерской",
+        "↩️ Назад",
     ]
+
+
+def test_back_keyboard_has_single_back_button() -> None:
+    keyboard = back_keyboard(7)
+    button = keyboard.inline_keyboard[0][0]
+
+    assert button.text == "↩️ Назад"
+    assert button.callback_data == "damage_control:back:7"
 
 
 def test_payment_flow_has_required_driver_name_step() -> None:

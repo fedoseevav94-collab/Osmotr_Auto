@@ -250,6 +250,9 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
+        if action == "back":
+            await _handle_back(callback, case)
+            return
         waiting_error = _waiting_callback_error(case, action, payment_type, callback.from_user.id)
         if waiting_error:
             await callback.answer(waiting_error, show_alert=True)
@@ -301,6 +304,56 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
             await callback.answer("Закрыто.")
             return
     await callback.answer("Не понял действие.", show_alert=True)
+
+
+async def _handle_back(callback: CallbackQuery, case: DamageControlCase) -> None:
+    if case.waiting_comment_user_id and case.waiting_comment_user_id != callback.from_user.id:
+        await callback.answer("Назад может нажать менеджер, который начал закрытие.", show_alert=True)
+        return
+    username = callback.from_user.username
+    if case.status == WAITING_DRIVER_NAME:
+        case.status = WAITING_MANAGER_ACTION
+        case.driver_name = None
+        case.payment_type = None
+        case.payment_amount = None
+        case.close_comment = None
+        await _send_case_followup(
+            callback.bot,
+            case,
+            "Вернул к выбору действия.",
+            reply_markup=damage_control_keyboard(case.id, case.category),
+        )
+    elif case.status == WAITING_PAYMENT_TYPE:
+        case.status = WAITING_DRIVER_NAME
+        case.driver_name = None
+        case.payment_type = None
+        case.payment_amount = None
+        case.close_comment = None
+        await _ask_driver_name(callback.bot, case, username)
+    elif case.status in {WAITING_DISPATCHER_COMMENT, WAITING_PAYMENT_AMOUNT}:
+        case.status = WAITING_PAYMENT_TYPE
+        case.payment_type = None
+        case.payment_amount = None
+        case.close_comment = None
+        await _ask_payment_type(callback.bot, case, username)
+    elif case.status == WAITING_CLOSE_COMMENT and case.payment_type == NO_CHARGE_PAYMENT_TYPE:
+        case.status = WAITING_MANAGER_ACTION
+        case.driver_name = None
+        case.payment_type = None
+        case.payment_amount = None
+        case.close_comment = None
+        await _send_case_followup(
+            callback.bot,
+            case,
+            "Вернул к выбору действия.",
+            reply_markup=damage_control_keyboard(case.id, case.category),
+        )
+    else:
+        await callback.answer("Сейчас некуда возвращаться.", show_alert=True)
+        return
+    with contextlib.suppress(Exception):
+        await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer("Вернул назад.")
 
 
 def _waiting_callback_error(
@@ -554,6 +607,13 @@ def payment_type_keyboard(case_id: int) -> InlineKeyboardMarkup:
             ]
             for key, label in PAYMENT_TYPE_LABELS.items()
         ]
+        + [[InlineKeyboardButton(text="↩️ Назад", callback_data=f"damage_control:back:{case_id}")]]
+    )
+
+
+def back_keyboard(case_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="↩️ Назад", callback_data=f"damage_control:back:{case_id}")]]
     )
 
 
@@ -736,6 +796,7 @@ async def _ask_driver_name(bot: Bot, case: DamageControlCase, username: str | No
         bot,
         case,
         f"{mention}, напишите ФИО водителя для отчёта по списанию.",
+        reply_markup=back_keyboard(case.id),
     )
 
 
@@ -763,6 +824,7 @@ async def _ask_payment_amount(
         bot,
         case,
         f"{mention}, тип: {label}.{service_hint}\nНапишите сумму списания/оплаты одним сообщением.",
+        reply_markup=back_keyboard(case.id),
     )
 
 
@@ -772,6 +834,7 @@ async def _ask_dispatcher_comment(bot: Bot, case: DamageControlCase, username: s
         bot,
         case,
         f"{mention}, напишите название диспетчерской.",
+        reply_markup=back_keyboard(case.id),
     )
 
 
@@ -813,6 +876,7 @@ async def _ask_no_charge_comment(bot: Bot, case: DamageControlCase, username: st
             "— без списания, причина: повреждение уже было\n"
             "— передано в офис"
         ),
+        reply_markup=back_keyboard(case.id),
     )
 
 
