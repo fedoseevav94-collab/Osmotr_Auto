@@ -61,6 +61,7 @@ def test_payment_type_keyboard_uses_business_labels() -> None:
         "КАСКО (Франшиза)",
         "Оплата по QR коду",
         "Оплата по терминалу",
+        "Списание с депозита",
     ]
 
 

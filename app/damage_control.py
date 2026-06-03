@@ -78,6 +78,7 @@ PAYMENT_TYPE_LABELS = {
     "kasko_franchise": "КАСКО (Франшиза)",
     "qr": "Оплата по QR коду",
     "terminal": "Оплата по терминалу",
+    "deposit": "Списание с депозита",
 }
 
 PAYMENT_TYPE_CLOSE_STATUS = {
@@ -86,6 +87,7 @@ PAYMENT_TYPE_CLOSE_STATUS = {
     "kasko_franchise": "CLOSED_TRANSFERRED_TO_OFFICE",
     "qr": "CLOSED_PAID_CASH",
     "terminal": "CLOSED_PAID_CASH",
+    "deposit": "CLOSED_BALANCE_CHARGED",
 }
 
 
