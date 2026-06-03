@@ -63,6 +63,12 @@ def period_bounds(period: str, now: datetime | None = None) -> tuple[datetime, d
         else:
             end = start.replace(month=start.month + 1)
         return start.replace(tzinfo=None), end.replace(tzinfo=None)
+    if period == "year":
+        start = today.replace(month=1, day=1)
+        end = start.replace(year=start.year + 1)
+        return start.replace(tzinfo=None), end.replace(tzinfo=None)
+    if period == "all":
+        return datetime(1970, 1, 1), (today + timedelta(days=1)).replace(tzinfo=None)
     raise ValueError(f"Unknown period: {period}")
 
 

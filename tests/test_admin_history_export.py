@@ -21,6 +21,18 @@ def test_period_bounds_today():
     assert end == datetime(2026, 6, 2)
 
 
+def test_period_bounds_year():
+    start, end = period_bounds("year", datetime(2026, 6, 3, 12, 0))
+    assert start == datetime(2026, 1, 1)
+    assert end == datetime(2027, 1, 1)
+
+
+def test_period_bounds_all_time():
+    start, end = period_bounds("all", datetime(2026, 6, 3, 12, 0))
+    assert start == datetime(1970, 1, 1)
+    assert end == datetime(2026, 6, 4)
+
+
 def test_fp_link_from_positive_chat_id():
     row = InspectionSession(fp_chat_id=1001905865504, fp_message_id=123)
     assert fp_link(row) == "https://t.me/c/1905865504/123"

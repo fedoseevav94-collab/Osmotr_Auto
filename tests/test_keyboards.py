@@ -4,8 +4,11 @@ from app.keyboards import (
     RESET_BUTTON,
     START_BUTTON,
     START_COMMAND_BUTTON,
+    charge_period_keyboard,
     reset_confirm_keyboard,
     driver_remarks_keyboard,
+    export_period_keyboard,
+    problem_period_keyboard,
     scenario_keyboard,
     staff_idle_keyboard,
     staff_menu_keyboard,
@@ -54,6 +57,13 @@ def test_supervisor_menu_has_management_actions_and_staff_mode():
     assert "🛞 Проверка резины" in labels
     assert "📌 Статус кампаний" in labels
     assert "🧰 Перейти в режим сотрудника" in labels
+
+
+def test_export_period_keyboards_have_year_and_all_time() -> None:
+    for keyboard in (export_period_keyboard(), problem_period_keyboard(), charge_period_keyboard()):
+        labels = _inline_labels(keyboard)
+        assert "📚 Текущий год" in labels
+        assert "🗂️ За всё время" in labels
 
 
 def test_staff_keyboard_hides_forward_by_default():
