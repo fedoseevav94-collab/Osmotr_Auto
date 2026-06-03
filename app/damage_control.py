@@ -27,6 +27,8 @@ CHARGE_REQUIRED = "DAMAGE_CHARGE_REQUIRED"
 NO_CHARGE_REQUIRED = "DAMAGE_NO_CHARGE_REQUIRED"
 WAITING_MANAGER_ACTION = "WAITING_MANAGER_ACTION"
 WAITING_CLOSE_COMMENT = "WAITING_CLOSE_COMMENT"
+WAITING_DRIVER_NAME = "WAITING_DRIVER_NAME"
+WAITING_PAYMENT_TYPE = "WAITING_PAYMENT_TYPE"
 WAITING_PAYMENT_AMOUNT = "WAITING_PAYMENT_AMOUNT"
 WAITING_SERVICE_AMOUNT = "WAITING_SERVICE_AMOUNT"
 SERVICE_AMOUNT_RECEIVED = "SERVICE_AMOUNT_RECEIVED"
@@ -191,23 +193,27 @@ async def process_due_damage_control(
                 case.service_reminder_due_at = now + timedelta(
                     minutes=settings.service_amount_reminder_interval_minutes
                 )
-            if (
-                case.first_reminder_due_at
-                and case.first_reminder_due_at <= now
-                and case.status not in {WAITING_CLOSE_COMMENT, WAITING_PAYMENT_AMOUNT}
-            ):
+            if case.first_reminder_due_at and case.first_reminder_due_at <= now:
                 if case.reminders_sent >= settings.max_reminders:
                     await _escalate(bot, session, case, settings)
                     continue
                 case.reminders_sent += 1
-                await _send_manager_prompt(
-                    bot,
-                    session,
-                    case,
-                    case.inspection,
-                    settings,
-                    reminder_number=case.reminders_sent,
-                )
+                if case.status in {
+                    WAITING_CLOSE_COMMENT,
+                    WAITING_DRIVER_NAME,
+                    WAITING_PAYMENT_TYPE,
+                    WAITING_PAYMENT_AMOUNT,
+                }:
+                    await _send_pending_closure_reminder(bot, case, settings, case.reminders_sent)
+                else:
+                    await _send_manager_prompt(
+                        bot,
+                        session,
+                        case,
+                        case.inspection,
+                        settings,
+                        reminder_number=case.reminders_sent,
+                    )
                 case.last_reminder_at = now
                 case.first_reminder_due_at = now + timedelta(minutes=settings.reminder_interval_minutes)
 
@@ -235,11 +241,14 @@ async def damage_control_callback(callback: CallbackQuery) -> None:
         if not case or case.status in FINAL_STATUSES:
             await callback.answer("Осмотр уже закрыт или не найден.", show_alert=True)
             return
-        if case.status in {WAITING_CLOSE_COMMENT, WAITING_PAYMENT_AMOUNT}:
+        if case.status in {WAITING_CLOSE_COMMENT, WAITING_DRIVER_NAME, WAITING_PAYMENT_AMOUNT}:
             await callback.answer("Уже жду данные по закрытию.", show_alert=True)
             return
         if action == "pay":
-            await _ask_payment_type(callback.bot, case, callback.from_user.username)
+            case.status = WAITING_DRIVER_NAME
+            case.waiting_comment_user_id = callback.from_user.id
+            case.waiting_comment_username = callback.from_user.username
+            await _ask_driver_name(callback.bot, case, callback.from_user.username)
             with contextlib.suppress(Exception):
                 await callback.message.edit_reply_markup(reply_markup=None)
             await callback.answer()
@@ -304,6 +313,28 @@ async def damage_control_message(message: Message) -> None:
             .order_by(DamageControlCase.updated_at.desc(), DamageControlCase.id.desc())
         )
         if not case:
+            case = await session.scalar(
+                select(DamageControlCase)
+                .where(
+                    DamageControlCase.status == WAITING_DRIVER_NAME,
+                    DamageControlCase.waiting_comment_user_id == message.from_user.id,
+                )
+                .options(selectinload(DamageControlCase.inspection))
+                .order_by(DamageControlCase.updated_at.desc(), DamageControlCase.id.desc())
+            )
+            if case:
+                if len(text.split()) < 2:
+                    await message.bot.send_message(
+                        chat_id=message.chat.id,
+                        text="Напишите ФИО водителя полностью, например: Иванов Иван Иванович.",
+                        reply_to_message_id=message.message_id,
+                        allow_sending_without_reply=True,
+                    )
+                    return
+                case.driver_name = text
+                case.status = WAITING_PAYMENT_TYPE
+                await _ask_payment_type(message.bot, case, message.from_user.username)
+                return
             case = await session.scalar(
                 select(DamageControlCase)
                 .where(
@@ -576,12 +607,22 @@ async def _ask_close_comment(bot: Bot, case: DamageControlCase, username: str | 
     )
 
 
-async def _ask_payment_type(bot: Bot, case: DamageControlCase, username: str | None) -> None:
+async def _ask_driver_name(bot: Bot, case: DamageControlCase, username: str | None) -> None:
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
     await _send_case_followup(
         bot,
         case,
-        f"{mention}, выберите тип оплаты/списания.",
+        f"{mention}, напишите ФИО водителя для отчёта по списанию.",
+    )
+
+
+async def _ask_payment_type(bot: Bot, case: DamageControlCase, username: str | None) -> None:
+    mention = f"@{username.lstrip('@')}" if username else "Менеджер"
+    driver_line = f"\nВодитель: {case.driver_name}" if case.driver_name else ""
+    await _send_case_followup(
+        bot,
+        case,
+        f"{mention}, выберите тип оплаты/списания.{driver_line}",
         reply_markup=payment_type_keyboard(case.id),
     )
 
@@ -599,6 +640,29 @@ async def _ask_payment_amount(
         bot,
         case,
         f"{mention}, тип: {label}.{service_hint}\nНапишите сумму списания/оплаты одним сообщением.",
+    )
+
+
+async def _send_pending_closure_reminder(
+    bot: Bot,
+    case: DamageControlCase,
+    settings: Settings,
+    reminder_number: int,
+) -> None:
+    mention = f"@{case.waiting_comment_username}" if case.waiting_comment_username else "Менеджер"
+    step = "завершите закрытие повреждения"
+    if case.status == WAITING_DRIVER_NAME:
+        step = "напишите ФИО водителя"
+    elif case.status == WAITING_PAYMENT_TYPE:
+        step = "выберите тип оплаты/списания"
+    elif case.status == WAITING_PAYMENT_AMOUNT:
+        step = "напишите сумму списания/оплаты"
+    elif case.status == WAITING_CLOSE_COMMENT:
+        step = "напишите комментарий по закрытию"
+    await _send_case_followup(
+        bot,
+        case,
+        f"{mention}, {step}.\nНапоминание {reminder_number}/{settings.max_reminders}.",
     )
 
 
@@ -725,6 +789,7 @@ def close_summary_text(
         return (
             f"Сотрудник {actor_name}{username} зафиксировал {action} на авто {plate}.\n"
             f"Дата и время осмотра: {dt:%d.%m.%Y %H:%M}\n"
+            f"Водитель: {case.driver_name or 'не указан'}\n"
             f"Тип оплаты: {PAYMENT_TYPE_LABELS.get(case.payment_type, case.payment_type)}\n"
             f"Сумма: {case.payment_amount}"
         )

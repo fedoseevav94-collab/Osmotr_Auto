@@ -3,6 +3,9 @@ from pathlib import Path
 
 from app.config import Settings
 from app.damage_control import (
+    WAITING_DRIVER_NAME,
+    WAITING_PAYMENT_AMOUNT,
+    WAITING_PAYMENT_TYPE,
     active_manager_mentions,
     classify_close_comment,
     manager_prompt_text,
@@ -63,6 +66,12 @@ def test_payment_type_keyboard_uses_business_labels() -> None:
         "Оплата по терминалу",
         "Списание с депозита",
     ]
+
+
+def test_payment_flow_has_required_driver_name_step() -> None:
+    assert WAITING_DRIVER_NAME == "WAITING_DRIVER_NAME"
+    assert WAITING_PAYMENT_TYPE == "WAITING_PAYMENT_TYPE"
+    assert WAITING_PAYMENT_AMOUNT == "WAITING_PAYMENT_AMOUNT"
 
 
 def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:

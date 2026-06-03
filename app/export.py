@@ -35,15 +35,12 @@ SCORE_HEADERS = [
 HISTORY_HEADERS = SCORE_HEADERS[1:]
 
 CHARGE_HEADERS = [
-    "Гос номер",
-    "Дата осмотра",
-    "Тип осмотра",
-    "Сотрудник осмотра",
-    "Описание повреждений",
-    "Сумма",
-    "Тип оплаты",
-    "Дата закрытия",
-    "Ссылка на сообщение в ФП",
+    "Дата и время списания",
+    "Номер авто",
+    "ФИО водителя",
+    "Тип повреждений",
+    "Сумма списания",
+    "Тип списания",
 ]
 
 
@@ -149,15 +146,12 @@ def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
         inspection = row.inspection
         ws.append(
             [
+                row.closed_at.strftime("%d.%m.%Y %H:%M") if row.closed_at else "",
                 row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "",
-                inspection.completed_at.strftime("%d.%m.%Y %H:%M") if inspection.completed_at else "",
-                inspection.scenario or "",
-                f"@{inspection.telegram_username}" if inspection.telegram_username else inspection.telegram_name or "",
+                row.driver_name or "",
                 row.damage_description or inspection.damage_description or "",
                 row.payment_amount or "",
                 row.payment_type or "",
-                row.closed_at.strftime("%d.%m.%Y %H:%M") if row.closed_at else "",
-                fp_link(inspection),
             ]
         )
     _autosize(ws)

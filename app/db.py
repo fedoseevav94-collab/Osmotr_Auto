@@ -57,6 +57,10 @@ async def init_db(engine: AsyncEngine) -> None:
                 await conn.execute(
                     text("ALTER TABLE damage_control_cases ADD COLUMN service_request_chat_id INTEGER")
                 )
+            if damage_control_columns and "driver_name" not in damage_control_columns:
+                await conn.execute(
+                    text("ALTER TABLE damage_control_cases ADD COLUMN driver_name VARCHAR(255)")
+                )
             if damage_control_columns and "payment_type" not in damage_control_columns:
                 await conn.execute(
                     text("ALTER TABLE damage_control_cases ADD COLUMN payment_type VARCHAR(64)")

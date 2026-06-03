@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.config import normalize_telegram_chat_id
-from app.export import fp_link, period_bounds
+from app.export import CHARGE_HEADERS, fp_link, period_bounds
 from app.models import InspectionSession
 from app.utils import is_supervisor, normalize_plate
 
@@ -29,3 +29,14 @@ def test_fp_link_from_positive_chat_id():
 def test_positive_supergroup_chat_id_is_normalized_for_bot_api():
     assert normalize_telegram_chat_id("1001905865504") == -1001905865504
     assert normalize_telegram_chat_id("-1001905865504") == -1001905865504
+
+
+def test_charge_export_headers_are_business_fields():
+    assert CHARGE_HEADERS == [
+        "Дата и время списания",
+        "Номер авто",
+        "ФИО водителя",
+        "Тип повреждений",
+        "Сумма списания",
+        "Тип списания",
+    ]

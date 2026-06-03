@@ -145,6 +145,7 @@ class DamageControlCase(Base):
     fp_chat_id: Mapped[int] = mapped_column(BigInteger)
     fp_message_id: Mapped[int] = mapped_column(Integer)
     damage_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    driver_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     reminders_sent: Mapped[int] = mapped_column(Integer, default=0)
     first_reminder_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_reminder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
