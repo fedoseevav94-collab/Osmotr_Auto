@@ -17,6 +17,7 @@ from app.constants import (
     SCORE_FIELDS,
     SCORE_SCENARIOS,
     SURRENDER_SCENARIOS,
+    TIRE_REQUIRED_SCENARIOS,
     TIRE_TYPES,
     Scenario,
 )
@@ -272,6 +273,8 @@ def _draft_next_step(inspection):
         and not inspection.driver_remarks_comment
     ):
         return InspectionFlow.driver_remarks_comment, "Опишите замечания водителя по авто.", {}, None
+    if scenario in TIRE_REQUIRED_SCENARIOS and inspection.tire_type is None:
+        return InspectionFlow.tire_type, "Какая резина стоит на авто?", {}, tire_type_keyboard()
     if inspection.tire_type and not has_photo(inspection, PhotoType.TIRE):
         return InspectionFlow.tire_photo, "Отправьте фото резины / протектора.", {}, None
     if inspection.tire_type and inspection.tire_score is None:
@@ -1105,9 +1108,13 @@ async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
+        scenario = Scenario(inspection.scenario)
         should_ask = (
             inspection.tire_score is None
-            and await repo.tire_campaign_applies_to_plate(inspection.plate_normalized)
+            and (
+                scenario in TIRE_REQUIRED_SCENARIOS
+                or await repo.tire_campaign_applies_to_plate(inspection.plate_normalized)
+            )
         )
     if should_ask:
         await ask_tire_type(message, state)

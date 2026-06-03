@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from app.constants import PhotoType, SCORE_FIELDS, SCORE_SCENARIOS, SURRENDER_SCENARIOS, TIRE_TYPES, Scenario
+from app.constants import (
+    PhotoType,
+    SCORE_FIELDS,
+    SCORE_SCENARIOS,
+    SURRENDER_SCENARIOS,
+    TIRE_REQUIRED_SCENARIOS,
+    TIRE_TYPES,
+    Scenario,
+)
 from app.models import InspectionSession
 
 
@@ -49,7 +57,7 @@ def validate_completion(inspection: InspectionSession) -> list[str]:
             errors.append("нужно указать, есть ли замечания у водителя")
         if inspection.driver_has_remarks and not inspection.driver_remarks_comment:
             errors.append("нужно описание замечаний водителя")
-    if inspection.tire_type is not None or inspection.tire_score is not None:
+    if scenario in TIRE_REQUIRED_SCENARIOS or inspection.tire_type is not None or inspection.tire_score is not None:
         if inspection.tire_type not in TIRE_TYPES:
             errors.append("нужно выбрать тип резины")
         if inspection.tire_score not in {1, 2, 3, 4, 5}:
