@@ -295,15 +295,16 @@ class InspectionRepository:
         query = select(TireCheckCampaignPlate.id).where(
             TireCheckCampaignPlate.campaign_id == campaign.id,
             TireCheckCampaignPlate.plate_normalized == plate_normalized,
+            TireCheckCampaignPlate.completed_at.is_(None),
         )
         return (await self.session.scalars(query)).first() is not None
 
-    async def mark_tire_campaign_done_for_inspection(self, inspection: InspectionSession) -> None:
+    async def mark_tire_campaign_done_for_inspection(self, inspection: InspectionSession) -> int | None:
         if not inspection.plate_normalized or inspection.tire_score is None:
-            return
+            return None
         campaign = await self.active_tire_campaign()
         if campaign is None or campaign.applies_to_all:
-            return
+            return None
         query = select(TireCheckCampaignPlate).where(
             TireCheckCampaignPlate.campaign_id == campaign.id,
             TireCheckCampaignPlate.plate_normalized == inspection.plate_normalized,
@@ -311,7 +312,7 @@ class InspectionRepository:
         )
         plate = (await self.session.scalars(query)).first()
         if plate is None:
-            return
+            return None
         plate.completed_at = _utcnow_naive()
         plate.inspection_id = inspection.id
         remaining = await self.session.scalar(
@@ -325,7 +326,19 @@ class InspectionRepository:
         if remaining == 0:
             campaign.status = "FINISHED"
             campaign.finished_at = _utcnow_naive()
+            await self.session.flush()
+            return campaign.id
         await self.session.flush()
+        return None
+
+    async def tire_campaign_rows(self, campaign_id: int) -> list[InspectionSession]:
+        query = (
+            select(InspectionSession)
+            .join(TireCheckCampaignPlate, TireCheckCampaignPlate.inspection_id == InspectionSession.id)
+            .where(TireCheckCampaignPlate.campaign_id == campaign_id)
+            .order_by(desc(InspectionSession.completed_at), desc(InspectionSession.id))
+        )
+        return list(await self.session.scalars(query))
 
     async def tire_campaign_progress(self) -> dict[str, object] | None:
         campaign = await self.active_tire_campaign()

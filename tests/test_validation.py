@@ -82,7 +82,7 @@ def test_tire_score_four_does_not_require_comment():
     assert "нужен комментарий к оценке резины" not in validate_completion(inspection)
 
 
-def test_issue_requires_tire_check():
+def test_issue_does_not_require_tire_check_without_campaign():
     inspection = make_inspection(Scenario.ISSUE)
     inspection.photos = [
         InspectionPhoto(photo_type=PhotoType.PLATE.value, telegram_file_id="p", telegram_file_unique_id="pu"),
@@ -92,9 +92,9 @@ def test_issue_requires_tire_check():
 
     errors = validate_completion(inspection)
 
-    assert "нужно выбрать тип резины" in errors
-    assert "нужна оценка состояния резины" in errors
-    assert "нужно фото резины" in errors
+    assert "нужно выбрать тип резины" not in errors
+    assert "нужна оценка состояния резины" not in errors
+    assert "нужно фото резины" not in errors
 
 
 def test_return_requires_driver_remarks_answer():

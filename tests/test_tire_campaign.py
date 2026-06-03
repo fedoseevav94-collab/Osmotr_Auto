@@ -53,3 +53,30 @@ async def test_tire_campaign_list_auto_finishes_when_all_plates_done():
         await repo.mark_tire_campaign_done_for_inspection(inspection)
         progress = await repo.tire_campaign_progress()
         assert progress is None
+
+
+@pytest.mark.asyncio
+async def test_completed_tire_campaign_plate_no_longer_applies():
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
+    maker = make_sessionmaker(engine)
+    await init_db(engine)
+
+    async with session_scope(maker) as session:
+        repo = InspectionRepository(session)
+        campaign = await repo.create_tire_campaign(False, 1, "Fedos_AV")
+        await repo.add_tire_campaign_plate(campaign, "о917нх797", "O917HX797")
+        await repo.add_tire_campaign_plate(campaign, "с771сн761", "C771CH761")
+        inspection = InspectionSession(
+            id=10,
+            telegram_user_id=2,
+            status="COMPLETED",
+            plate_normalized="O917HX797",
+            tire_score=5,
+        )
+        session.add(inspection)
+        await session.flush()
+
+        assert await repo.tire_campaign_applies_to_plate("O917HX797")
+        assert await repo.mark_tire_campaign_done_for_inspection(inspection) is None
+        assert not await repo.tire_campaign_applies_to_plate("O917HX797")
+        assert await repo.tire_campaign_applies_to_plate("C771CH761")

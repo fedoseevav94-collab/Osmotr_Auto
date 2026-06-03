@@ -12,15 +12,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
-from app.constants import (
-    PhotoType,
-    SCORE_FIELDS,
-    SCORE_SCENARIOS,
-    SURRENDER_SCENARIOS,
-    TIRE_REQUIRED_SCENARIOS,
-    TIRE_TYPES,
-    Scenario,
-)
+from app.constants import PhotoType, SCORE_FIELDS, SCORE_SCENARIOS, SURRENDER_SCENARIOS, TIRE_TYPES, Scenario
 from app.damage_control import FINAL_STATUSES, start_damage_control_for_inspection
 from app.db import session_scope
 from app.export import period_bounds, write_charge_xlsx, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
@@ -561,16 +553,21 @@ async def tire_campaign_mode(callback: CallbackQuery, state: FSMContext) -> None
     if mode == "all":
         async with session_scope(_sessionmaker()) as session:
             repo = InspectionRepository(session)
-            await repo.create_tire_campaign(
-                True,
+            plates = await repo.list_known_plate_values()
+            if not plates:
+                await callback.message.answer("В базе пока нет номеров авто для проверки резины.")
+                return
+            campaign = await repo.create_tire_campaign(
+                False,
                 callback.from_user.id,
                 callback.from_user.username,
-                expires_at=_end_of_today(),
             )
+            for plate in plates:
+                await repo.add_tire_campaign_plate(campaign, plate, plate)
         await state.clear()
         await callback.message.answer(
-            "Включил проверку резины до конца дня для всех проходящих авто. "
-            "В обычном осмотре бот спросит тип резины и оценку состояния."
+            f"Запустил круг проверки резины по текущей базе: {len(plates)} авто. "
+            "Бот будет спрашивать резину только по этим авто, пока круг не завершится."
         )
         return
     await _set_state(state, TireCampaignFlow.waiting_list_file)
@@ -602,7 +599,6 @@ async def tire_campaign_list_file(message: Message, state: FSMContext) -> None:
             False,
             message.from_user.id,
             message.from_user.username,
-            expires_at=_end_of_today(),
         )
         seen: set[str] = set()
         for row in rows:
@@ -613,7 +609,7 @@ async def tire_campaign_list_file(message: Message, state: FSMContext) -> None:
             await repo.add_tire_campaign_plate(campaign, row["plate_raw"], plate_normalized)
     await state.clear()
     await message.answer(
-        f"Включил проверку резины по списку до конца дня: {len(seen)} авто. "
+        f"Включил разовую проверку резины по списку: {len(seen)} авто. "
         "Когда эти машины пройдут обычный осмотр, бот добавит критерий резины."
     )
 
@@ -855,6 +851,12 @@ async def save_plate(
         inspection.plate_raw = plate_raw
         inspection.plate_normalized = plate_norm
         hint = await plate_hint(session, plate_norm)
+        new_plate_requires_tire = hint is None
+        if new_plate_requires_tire:
+            await repo.upsert_known_plate(plate_raw, plate_norm, source="inspection")
+            active_campaign = await repo.active_tire_campaign()
+            if active_campaign and not active_campaign.applies_to_all:
+                await repo.add_tire_campaign_plate(active_campaign, plate_raw, plate_norm)
         await repo.log_action(inspection, "PLATE", user_id, username, plate_norm)
 
     if hint is None:
@@ -864,6 +866,8 @@ async def save_plate(
     else:
         hint_text = f"\nНомер принят. Ближайшая подсказка из базы: {hint.plate_normalized}"
 
+    if new_plate_requires_tire:
+        await state.update_data(tire_required_for_new_plate=True)
     await message.answer(_accent(f"✅ Номер выбран: {plate_norm}") + escape(hint_text), parse_mode="HTML")
     return True
 
@@ -1153,11 +1157,13 @@ async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
         scenario = Scenario(inspection.scenario)
+        campaign_applies = await repo.tire_campaign_applies_to_plate(inspection.plate_normalized)
         should_ask = (
             inspection.tire_score is None
             and (
-                scenario in TIRE_REQUIRED_SCENARIOS
-                or await repo.tire_campaign_applies_to_plate(inspection.plate_normalized)
+                scenario == Scenario.TIRES
+                or campaign_applies
+                or data.get("tire_required_for_new_plate")
             )
         )
     if should_ask:
@@ -1269,19 +1275,43 @@ async def finish_inspection(message: Message, state: FSMContext) -> None:
             await message.answer("⛔ <b>Осмотр нельзя завершить:</b>\n" + "\n".join(f"- {escape(error)}" for error in errors), parse_mode="HTML")
             return
         await repo.complete(inspection)
-        await repo.mark_tire_campaign_done_for_inspection(inspection)
+        finished_tire_campaign_id = await repo.mark_tire_campaign_done_for_inspection(inspection)
         await session.flush()
         message_id = await publish_to_fp(message.bot, inspection, _settings().fp_chat_id)
         inspection.fp_chat_id = _settings().fp_chat_id
         inspection.fp_message_id = message_id
         await start_damage_control_for_inspection(message.bot, session, inspection, _settings())
         await repo.log_action(inspection, "PUBLISH_FP", int(actor_user_id), str(actor_username) if actor_username else None)
+        if finished_tire_campaign_id:
+            await notify_tire_campaign_finished(message.bot, repo, finished_tire_campaign_id)
     await state.clear()
     await message.answer(
         _accent("✅ Готово. Итог осмотра опубликован в ФП."),
         reply_markup=staff_idle_keyboard(),
         parse_mode="HTML",
     )
+
+
+async def notify_tire_campaign_finished(bot: Bot, repo: InspectionRepository, campaign_id: int) -> None:
+    supervisor_id = await repo.latest_user_id_by_username(_settings().supervisor_username)
+    if not supervisor_id:
+        logger.info("Cannot send tire campaign report: supervisor has not started the bot")
+        return
+    rows = await repo.tire_campaign_rows(campaign_id)
+    path = _settings().data_dir / f"tire_campaign_{campaign_id}_report.xlsx"
+    write_scores_xlsx(rows, path)
+    try:
+        await bot.send_message(
+            chat_id=supervisor_id,
+            text=f"Круг проверки резины завершён. Проверено авто: {len(rows)}.",
+        )
+        await bot.send_document(
+            chat_id=supervisor_id,
+            document=FSInputFile(path),
+            caption="Отчёт по завершённому кругу проверки резины.",
+        )
+    except Exception:
+        logger.exception("Failed to send tire campaign report to supervisor")
 
 
 @router.callback_query(F.data.startswith("correct_plate:"))
