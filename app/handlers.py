@@ -12,7 +12,18 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
-from app.constants import PhotoType, SCORE_FIELDS, SCORE_SCENARIOS, STANDARD_SCENARIOS, SURRENDER_SCENARIOS, TIRE_TYPES, Scenario
+from app.constants import (
+    ALWAYS_SCORE_SCENARIO_FIELDS,
+    MONTHLY_SCORE_FIELDS,
+    PhotoType,
+    SCORE_FIELD_TITLES,
+    SCORE_FIELDS,
+    SCORE_REFRESH_DAYS,
+    STANDARD_SCENARIOS,
+    SURRENDER_SCENARIOS,
+    TIRE_TYPES,
+    Scenario,
+)
 from app.damage_control import FINAL_STATUSES, start_damage_control_for_inspection
 from app.db import session_scope
 from app.export import period_bounds, write_charge_xlsx, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
@@ -205,8 +216,10 @@ async def _render_current_step(message: Message, state: FSMContext, state_value:
     elif state_value == InspectionFlow.damage_description.state:
         await message.answer(_accent("📝 Опишите повреждения."), reply_markup=reply_markup, parse_mode="HTML")
     elif state_value == InspectionFlow.score.state:
+        fields = data.get("score_fields") or [prefix for prefix, _ in SCORE_FIELDS]
         index = data.get("score_index", 0)
-        prefix, title = SCORE_FIELDS[index]
+        prefix = fields[index]
+        title = SCORE_FIELD_TITLES[prefix]
         await message.answer(_accent(f"⭐ Оценка: {title}"), reply_markup=score_keyboard(prefix), parse_mode="HTML")
     elif state_value == InspectionFlow.score_comment.state:
         await message.answer(
@@ -265,19 +278,25 @@ def _draft_next_step(inspection):
         return InspectionFlow.damage_photos, "Отправьте фото повреждений.", {}, damage_photos_keyboard()
     if inspection.has_damage and not inspection.damage_description:
         return InspectionFlow.damage_description, "Опишите повреждения.", {}, None
-    if scenario in SCORE_SCENARIOS:
-        for index, (prefix, title) in enumerate(SCORE_FIELDS):
-            score = getattr(inspection, f"{prefix}_score")
-            comment = getattr(inspection, f"{prefix}_comment")
-            if score is None:
-                return InspectionFlow.score, f"Оценка: {title}", {"score_index": index}, score_keyboard(prefix)
-            if score < 4 and not comment:
-                return (
-                    InspectionFlow.score_comment,
-                    f"Напишите комментарий: {title}",
-                    {"comment_prefix": prefix, "score_index": index},
-                    None,
-                )
+    for prefix in ALWAYS_SCORE_SCENARIO_FIELDS.get(scenario, ()):
+        title = SCORE_FIELD_TITLES[prefix]
+        if getattr(inspection, f"{prefix}_score") is None:
+            return (
+                InspectionFlow.score,
+                f"Оценка: {title}",
+                {"score_index": 0, "score_fields": [prefix]},
+                score_keyboard(prefix),
+            )
+    for index, (prefix, title) in enumerate(SCORE_FIELDS):
+        score = getattr(inspection, f"{prefix}_score")
+        comment = getattr(inspection, f"{prefix}_comment")
+        if score is not None and score < 4 and not comment:
+            return (
+                InspectionFlow.score_comment,
+                f"Напишите комментарий: {title}",
+                {"comment_prefix": prefix, "score_index": index},
+                None,
+            )
     if scenario in SURRENDER_SCENARIOS and inspection.driver_has_remarks is None:
         return (
             InspectionFlow.driver_remarks,
@@ -997,19 +1016,39 @@ async def move_to_scores_or_finish(message: Message, state: FSMContext) -> None:
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
-        scenario = Scenario(inspection.scenario)
+        score_fields = await required_score_fields(repo, inspection)
 
-    if scenario in SCORE_SCENARIOS:
+    if score_fields:
         await state.update_data(score_index=0)
+        await state.update_data(score_fields=score_fields)
         await ask_score(message, state)
     else:
         await maybe_ask_tire_or_finish(message, state)
 
 
+async def required_score_fields(repo: InspectionRepository, inspection) -> list[str]:
+    scenario = Scenario(inspection.scenario)
+    fields: list[str] = []
+    if scenario not in STANDARD_SCENARIOS:
+        return fields
+
+    cutoff = datetime.now() - timedelta(days=SCORE_REFRESH_DAYS)
+    for prefix in MONTHLY_SCORE_FIELDS:
+        if not await repo.has_recent_score_for_plate(inspection.plate_normalized, prefix, cutoff, inspection.id):
+            fields.append(prefix)
+
+    for prefix in ALWAYS_SCORE_SCENARIO_FIELDS.get(scenario, ()):
+        if prefix not in fields:
+            fields.append(prefix)
+    return fields
+
+
 async def ask_score(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
+    fields = data.get("score_fields") or [prefix for prefix, _ in SCORE_FIELDS]
     index = data.get("score_index", 0)
-    prefix, title = SCORE_FIELDS[index]
+    prefix = fields[index]
+    title = SCORE_FIELD_TITLES[prefix]
     await _set_state(state, InspectionFlow.score)
     await message.answer(_accent(f"⭐ Оценка: {title}"), reply_markup=score_keyboard(prefix), parse_mode="HTML")
 
@@ -1063,8 +1102,9 @@ async def score_comment(message: Message, state: FSMContext) -> None:
 
 async def next_score_or_finish(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
+    fields = data.get("score_fields") or [prefix for prefix, _ in SCORE_FIELDS]
     next_index = data.get("score_index", 0) + 1
-    if next_index < len(SCORE_FIELDS):
+    if next_index < len(fields):
         await state.update_data(score_index=next_index)
         await ask_score(message, state)
     else:

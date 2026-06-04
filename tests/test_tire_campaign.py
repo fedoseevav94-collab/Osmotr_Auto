@@ -1,6 +1,10 @@
+from datetime import datetime, timedelta
+
 import pytest
 
+from app.constants import Scenario
 from app.db import init_db, make_engine, make_sessionmaker, session_scope
+from app.handlers import required_score_fields
 from app.models import InspectionSession
 from app.repository import InspectionRepository
 from app.utils import is_supervisor
@@ -103,3 +107,69 @@ async def test_tire_check_is_needed_only_until_plate_has_completed_tire_score():
 
         assert await repo.has_tire_check_for_plate("О917НХ797")
         assert not await repo.has_tire_check_for_plate("О917НХ797", exclude_inspection_id=10)
+
+
+@pytest.mark.asyncio
+async def test_monthly_body_and_wrap_scores_are_skipped_when_recent_but_tech_is_always_return():
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
+    maker = make_sessionmaker(engine)
+    await init_db(engine)
+
+    async with session_scope(maker) as session:
+        repo = InspectionRepository(session)
+        session.add(
+            InspectionSession(
+                id=10,
+                telegram_user_id=2,
+                status="COMPLETED",
+                scenario=Scenario.PLANNED.value,
+                plate_normalized="О917НХ797",
+                completed_at=datetime.now() - timedelta(days=5),
+                body_score=4,
+                wrap_score=5,
+            )
+        )
+        current = InspectionSession(
+            id=11,
+            telegram_user_id=2,
+            status="DRAFT",
+            scenario=Scenario.RETURN.value,
+            plate_normalized="О917НХ797",
+        )
+        session.add(current)
+        await session.flush()
+
+        assert await required_score_fields(repo, current) == ["tech"]
+
+
+@pytest.mark.asyncio
+async def test_monthly_body_and_wrap_scores_are_requested_when_old_or_missing():
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
+    maker = make_sessionmaker(engine)
+    await init_db(engine)
+
+    async with session_scope(maker) as session:
+        repo = InspectionRepository(session)
+        session.add(
+            InspectionSession(
+                id=10,
+                telegram_user_id=2,
+                status="COMPLETED",
+                scenario=Scenario.PLANNED.value,
+                plate_normalized="О917НХ797",
+                completed_at=datetime.now() - timedelta(days=31),
+                body_score=4,
+                wrap_score=5,
+            )
+        )
+        current = InspectionSession(
+            id=11,
+            telegram_user_id=2,
+            status="DRAFT",
+            scenario=Scenario.RETURN.value,
+            plate_normalized="О917НХ797",
+        )
+        session.add(current)
+        await session.flush()
+
+        assert await required_score_fields(repo, current) == ["body", "wrap", "tech"]

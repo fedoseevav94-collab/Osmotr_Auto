@@ -42,7 +42,6 @@ STANDARD_SCENARIOS = (
     Scenario.ACCIDENT,
 )
 SURRENDER_SCENARIOS = {Scenario.RETURN, Scenario.TRANSFER}
-SCORE_SCENARIOS = {Scenario.RETURN, Scenario.TRANSFER, Scenario.PLANNED}
 TIRE_REQUIRED_SCENARIOS: set[Scenario] = {Scenario.TIRES}
 
 DTP_LABELS = {
@@ -56,6 +55,13 @@ SCORE_FIELDS = (
     ("tech", "Техническое состояние"),
     ("wrap", "Оклейка"),
 )
+SCORE_FIELD_TITLES = dict(SCORE_FIELDS)
+MONTHLY_SCORE_FIELDS = ("body", "wrap")
+ALWAYS_SCORE_SCENARIO_FIELDS = {
+    Scenario.RETURN: ("tech",),
+    Scenario.TRANSFER: ("tech",),
+}
+SCORE_REFRESH_DAYS = 30
 
 TIRE_TYPES = {
     "winter": "зимняя",

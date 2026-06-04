@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from app.constants import (
+    ALWAYS_SCORE_SCENARIO_FIELDS,
     PhotoType,
+    SCORE_FIELD_TITLES,
     SCORE_FIELDS,
-    SCORE_SCENARIOS,
     SURRENDER_SCENARIOS,
     TIRE_REQUIRED_SCENARIOS,
     TIRE_TYPES,
@@ -44,14 +45,16 @@ def validate_completion(inspection: InspectionSession) -> list[str]:
             errors.append("нужно фото повреждений")
         if not inspection.damage_description:
             errors.append("нужно описание повреждений")
-    if scenario in SCORE_SCENARIOS:
-        for prefix, title in SCORE_FIELDS:
-            score = getattr(inspection, f"{prefix}_score")
-            comment = getattr(inspection, f"{prefix}_comment")
-            if score not in {1, 2, 3, 4, 5}:
-                errors.append(f"нужна оценка: {title}")
-            if score is not None and score < 4 and not comment:
-                errors.append(f"нужен комментарий к оценке: {title}")
+    for prefix in ALWAYS_SCORE_SCENARIO_FIELDS.get(scenario, ()):
+        title = SCORE_FIELD_TITLES[prefix]
+        score = getattr(inspection, f"{prefix}_score")
+        if score not in {1, 2, 3, 4, 5}:
+            errors.append(f"нужна оценка: {title}")
+    for prefix, title in SCORE_FIELDS:
+        score = getattr(inspection, f"{prefix}_score")
+        comment = getattr(inspection, f"{prefix}_comment")
+        if score is not None and score < 4 and not comment:
+            errors.append(f"нужен комментарий к оценке: {title}")
     if scenario in SURRENDER_SCENARIOS:
         if inspection.driver_has_remarks is None:
             errors.append("нужно указать, есть ли замечания у водителя")

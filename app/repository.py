@@ -138,6 +138,27 @@ class InspectionRepository:
         query = select(InspectionSession.id).where(*conditions).limit(1)
         return (await self.session.scalars(query)).first() is not None
 
+    async def has_recent_score_for_plate(
+        self,
+        plate_normalized: str | None,
+        score_prefix: str,
+        since: datetime,
+        exclude_inspection_id: int | None = None,
+    ) -> bool:
+        if not plate_normalized:
+            return False
+        score_column = getattr(InspectionSession, f"{score_prefix}_score")
+        conditions = [
+            InspectionSession.plate_normalized == plate_normalized,
+            InspectionSession.status == SessionStatus.COMPLETED.value,
+            InspectionSession.completed_at >= since,
+            score_column.is_not(None),
+        ]
+        if exclude_inspection_id is not None:
+            conditions.append(InspectionSession.id != exclude_inspection_id)
+        query = select(InspectionSession.id).where(*conditions).limit(1)
+        return (await self.session.scalars(query)).first() is not None
+
     async def get_known_plate(self, plate_normalized: str) -> KnownVehiclePlate | None:
         query = select(KnownVehiclePlate).where(KnownVehiclePlate.plate_normalized == plate_normalized)
         return (await self.session.scalars(query)).first()
