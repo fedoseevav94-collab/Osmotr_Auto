@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from app.constants import STANDARD_SCENARIOS, Scenario, TIRE_TYPES
+from app.utils import display_plate
 
 START_BUTTON = "🚗 Начать осмотр"
 START_COMMAND_BUTTON = "/start"
@@ -189,22 +190,11 @@ def tire_score_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def ocr_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Да, верно", callback_data="ocr_plate:yes"),
-                InlineKeyboardButton(text="✏️ Исправить номер", callback_data="ocr_plate:no"),
-            ]
-        ]
-    )
-
-
 def plate_choices_keyboard(plates) -> InlineKeyboardMarkup:
     rows = []
     for plate in plates:
         details = " ".join(part for part in (plate.brand, plate.model) if part)
-        label = f"🚘 {plate.plate_normalized}"
+        label = f"🚘 {display_plate(plate.plate_normalized)}"
         if details:
             label += f" · {details}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"plate_select:{plate.plate_normalized}")])

@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
-from app.constants import PhotoType, SCORE_FIELDS, SCORE_SCENARIOS, SURRENDER_SCENARIOS, TIRE_TYPES, Scenario
+from app.constants import PhotoType, SCORE_FIELDS, SCORE_SCENARIOS, STANDARD_SCENARIOS, SURRENDER_SCENARIOS, TIRE_TYPES, Scenario
 from app.damage_control import FINAL_STATUSES, start_damage_control_for_inspection
 from app.db import session_scope
 from app.export import period_bounds, write_charge_xlsx, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
@@ -46,7 +46,7 @@ from app.keyboards import (
 from app.publisher import build_summary, publish_to_fp
 from app.repository import InspectionRepository
 from app.states import CorrectionFlow, ExportFlow, InspectionFlow, TireCampaignFlow
-from app.utils import PLATE_FORMAT_HINT, is_supervisor, is_valid_plate, normalize_plate
+from app.utils import PLATE_FORMAT_HINT, display_plate, is_supervisor, is_valid_plate, normalize_plate
 from app.validation import has_photo, validate_completion
 from app.vehicle_registry import plate_hint, read_vehicle_rows
 
@@ -848,15 +848,15 @@ async def save_plate(
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         inspection = await repo.get(data["inspection_id"])
-        inspection.plate_raw = plate_raw
+        inspection.plate_raw = plate_norm
         inspection.plate_normalized = plate_norm
         hint = await plate_hint(session, plate_norm)
         new_plate_requires_tire = hint is None
         if new_plate_requires_tire:
-            await repo.upsert_known_plate(plate_raw, plate_norm, source="inspection")
+            await repo.upsert_known_plate(plate_norm, plate_norm, source="inspection")
             active_campaign = await repo.active_tire_campaign()
             if active_campaign and not active_campaign.applies_to_all:
-                await repo.add_tire_campaign_plate(active_campaign, plate_raw, plate_norm)
+                await repo.add_tire_campaign_plate(active_campaign, plate_norm, plate_norm)
         await repo.log_action(inspection, "PLATE", user_id, username, plate_norm)
 
     if hint is None:
@@ -864,11 +864,11 @@ async def save_plate(
     elif hint.exact:
         hint_text = "\nНомер найден в текущей базе машин."
     else:
-        hint_text = f"\nНомер принят. Ближайшая подсказка из базы: {hint.plate_normalized}"
+        hint_text = f"\nНомер принят. Ближайшая подсказка из базы: {display_plate(hint.plate_normalized)}"
 
     if new_plate_requires_tire:
         await state.update_data(tire_required_for_new_plate=True)
-    await message.answer(_accent(f"✅ Номер выбран: {plate_norm}") + escape(hint_text), parse_mode="HTML")
+    await message.answer(_accent(f"✅ Номер выбран: {display_plate(plate_norm)}") + escape(hint_text), parse_mode="HTML")
     return True
 
 
@@ -1158,12 +1158,19 @@ async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
         inspection = await repo.get(data["inspection_id"])
         scenario = Scenario(inspection.scenario)
         campaign_applies = await repo.tire_campaign_applies_to_plate(inspection.plate_normalized)
+        already_checked = await repo.has_tire_check_for_plate(inspection.plate_normalized, inspection.id)
         should_ask = (
             inspection.tire_score is None
             and (
                 scenario == Scenario.TIRES
-                or campaign_applies
-                or data.get("tire_required_for_new_plate")
+                or (
+                    not already_checked
+                    and (
+                        scenario in STANDARD_SCENARIOS
+                        or campaign_applies
+                        or data.get("tire_required_for_new_plate")
+                    )
+                )
             )
         )
     if should_ask:
@@ -1370,7 +1377,7 @@ async def correct_plate_apply(message: Message, state: FSMContext) -> None:
             await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
             await state.clear()
             return
-        inspection.plate_raw = plate_raw
+        inspection.plate_raw = plate_norm
         inspection.plate_normalized = plate_norm
         await repo.log_action(inspection, "CORRECT_PLATE", message.from_user.id, message.from_user.username, plate_norm)
         await session.flush()
@@ -1388,7 +1395,7 @@ async def correct_plate_apply(message: Message, state: FSMContext) -> None:
         except Exception as exc:
             logger.warning("Failed to edit FP message after plate correction: %s", exc)
     await state.clear()
-    await message.answer(_accent(f"✅ Госномер исправлен на {plate_norm}."), parse_mode="HTML")
+    await message.answer(_accent(f"✅ Госномер исправлен на {display_plate(plate_norm)}."), parse_mode="HTML")
 
 
 async def reset_button(message: Message, state: FSMContext) -> None:
@@ -1502,7 +1509,7 @@ async def show_my_drafts(message: Message, user_id: int) -> None:
         await message.answer(
             f"Черновик #{draft.id}\n"
             f"Сценарий: {draft.scenario or 'сценарий не выбран'}\n"
-            f"Номер: {draft.plate_normalized or 'номер не введён'}\n"
+            f"Номер: {display_plate(draft.plate_normalized) if draft.plate_normalized else 'номер не введён'}\n"
             f"Создан: {created}",
             reply_markup=draft_keyboard(draft.id),
         )
@@ -1725,7 +1732,7 @@ async def send_open_damages(message: Message) -> None:
     lines = ["Открытые повреждения:"]
     for row in rows[:20]:
         inspection = row.inspection
-        plate = row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "без номера"
+        plate = display_plate(row.plate_normalized or inspection.plate_normalized or inspection.plate_raw)
         date = inspection.completed_at.strftime("%d.%m.%Y %H:%M") if inspection.completed_at else ""
         service = "сервис ответил" if row.service_received_at else "ждём сервис"
         lines.append(
@@ -1747,7 +1754,7 @@ async def send_service_waiting(message: Message) -> None:
     lines = ["Ждём оценку/сумму от сервиса:"]
     for row in rows[:20]:
         inspection = row.inspection
-        plate = row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "без номера"
+        plate = display_plate(row.plate_normalized or inspection.plate_normalized or inspection.plate_raw)
         requested = row.service_requested_at
         minutes = int((now - requested).total_seconds() // 60) if requested else 0
         date = inspection.completed_at.strftime("%d.%m.%Y %H:%M") if inspection.completed_at else ""

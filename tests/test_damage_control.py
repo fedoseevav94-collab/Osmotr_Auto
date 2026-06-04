@@ -133,7 +133,7 @@ def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:
         telegram_user_id=1,
         status="COMPLETED",
         scenario="Плановый осмотр",
-        plate_normalized="B751CX797",
+        plate_normalized="В751СХ797",
         has_damage=True,
         damage_description="Переднее крыло помято",
     )
@@ -142,7 +142,7 @@ def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:
         inspection_id=1,
         status="WAITING_MANAGER_ACTION",
         category="DAMAGE_CHARGE_REQUIRED",
-        plate_normalized="B751CX797",
+        plate_normalized="В751СХ797",
         fp_chat_id=-1001905865504,
         fp_message_id=123,
         damage_description="Переднее крыло помято",
@@ -150,7 +150,7 @@ def test_manager_prompt_is_short_and_does_not_duplicate_description() -> None:
 
     text = manager_prompt_text(case, inspection, settings)
 
-    assert "Найдены повреждения по авто B751CX797" in text
+    assert "Найдены повреждения по авто В751СХ797" in text
     assert "Авто:" not in text
     assert "Описание и фото" not in text
     assert "Переднее крыло" not in text
@@ -163,7 +163,7 @@ def test_manager_prompt_says_service_answer_received() -> None:
         telegram_user_id=1,
         status="COMPLETED",
         scenario="Сдача",
-        plate_normalized="M671HM797",
+        plate_normalized="М671НМ797",
         has_damage=True,
         damage_description="Вмятина",
     )
@@ -172,7 +172,7 @@ def test_manager_prompt_says_service_answer_received() -> None:
         inspection_id=1,
         status="WAITING_MANAGER_ACTION",
         category="DAMAGE_CHARGE_REQUIRED",
-        plate_normalized="M671HM797",
+        plate_normalized="М671НМ797",
         fp_chat_id=-1001905865504,
         fp_message_id=123,
         damage_description="Вмятина",

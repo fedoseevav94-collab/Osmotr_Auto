@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
-from app.constants import PhotoType
 from app.db import session_scope
 from app.models import InspectionSession
-from app.ocr import recognize_plate_from_image
 from app.repository import InspectionRepository
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -55,52 +51,18 @@ async def run_daily_plate_audit(
     settings: Settings,
     now: datetime | None = None,
 ) -> list[PlateAuditItem]:
-    start, end = _previous_moscow_day_bounds(now)
-    items = await audit_plate_photos(bot, sessionmaker, settings.data_dir / "plate_audit", start, end)
-    chat_id = await _audit_recipient_chat_id(sessionmaker, settings)
-    if chat_id is None:
-        logger.warning("Daily plate audit report was not sent: supervisor chat id is unknown")
-        return items
-    for chunk in _split_telegram_message(build_plate_audit_report(items, start, end)):
-        await bot.send_message(chat_id=chat_id, text=chunk)
-    return items
+    logger.info("Plate photo recognition report is disabled by business rule")
+    return []
 
 
 async def audit_plate_photos(
     bot: Bot,
     sessionmaker: async_sessionmaker,
-    output_dir: Path,
     start: datetime,
     end: datetime,
 ) -> list[PlateAuditItem]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    async with session_scope(sessionmaker) as session:
-        repo = InspectionRepository(session)
-        inspections = await repo.completed_with_photos_between(start, end)
-
-    result: list[PlateAuditItem] = []
-    for inspection in inspections:
-        plate = inspection.plate_normalized or inspection.plate_raw or ""
-        photo = next((item for item in inspection.photos if item.photo_type == PhotoType.PLATE.value), None)
-        link = _inspection_link(inspection)
-        if photo is None:
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "no_photo", link))
-            continue
-        path = output_dir / f"inspection_{inspection.id}_plate.jpg"
-        path.unlink(missing_ok=True)
-        with contextlib.suppress(Exception):
-            await bot.download(photo.telegram_file_id, destination=path)
-        if not path.exists():
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "download_failed", link))
-            continue
-        recognized = recognize_plate_from_image(path, exhaustive=True)
-        if recognized is None:
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", None, "unrecognized", link))
-        elif recognized == plate:
-            result.append(PlateAuditItem(inspection.id, plate, recognized, "match", link))
-        else:
-            result.append(PlateAuditItem(inspection.id, plate or "без номера", recognized, "mismatch", link))
-    return result
+    logger.info("Plate photo recognition audit is disabled by business rule")
+    return []
 
 
 def build_plate_audit_report(items: list[PlateAuditItem], start: datetime, end: datetime) -> str:

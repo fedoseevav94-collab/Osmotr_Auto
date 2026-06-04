@@ -37,7 +37,7 @@ def make_inspection(photos: list[InspectionPhoto]) -> InspectionSession:
         telegram_username="inspector",
         scenario=Scenario.TRANSFER.value,
         status="COMPLETED",
-        plate_normalized="O917HX797",
+        plate_normalized="О917НХ797",
         has_damage=False,
         driver_has_remarks=False,
         body_score=4,
@@ -49,7 +49,7 @@ def make_inspection(photos: list[InspectionPhoto]) -> InspectionSession:
 
 def test_summary_transfer_uses_sdal_marker():
     summary = build_summary(make_inspection([]))
-    assert summary.startswith("O917HX797 сдал")
+    assert summary.startswith("О917НХ797 сдал")
 
 
 def test_summary_includes_tire_block_when_present():

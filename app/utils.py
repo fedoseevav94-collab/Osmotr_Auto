@@ -3,42 +3,49 @@ from __future__ import annotations
 import re
 
 PLATE_FORMAT_HINT = "Формат: А123ВС77, А123ВС777, АА77777 или АА777177."
-PLATE_ALLOWED_LETTERS = "ABEKMHOPCTYX"
+PLATE_ALLOWED_LETTERS = "АВЕКМНОРСТУХ"
 STANDARD_PLATE_RE = re.compile(rf"^[{PLATE_ALLOWED_LETTERS}]\d{{3}}[{PLATE_ALLOWED_LETTERS}]{{2}}\d{{2,3}}$")
 TAXI_PLATE_RE = re.compile(rf"^[{PLATE_ALLOWED_LETTERS}]{{2}}\d{{5,6}}$")
 
-CYR_TO_LAT = str.maketrans(
+LAT_TO_CYR = str.maketrans(
     {
-        "А": "A",
-        "В": "B",
-        "Е": "E",
-        "К": "K",
-        "М": "M",
-        "Н": "H",
-        "О": "O",
-        "Р": "P",
-        "С": "C",
-        "Т": "T",
-        "У": "Y",
-        "Х": "X",
-        "а": "A",
-        "в": "B",
-        "е": "E",
-        "к": "K",
-        "м": "M",
-        "н": "H",
-        "о": "O",
-        "р": "P",
-        "с": "C",
-        "т": "T",
-        "у": "Y",
-        "х": "X",
+        "A": "А",
+        "B": "В",
+        "E": "Е",
+        "K": "К",
+        "M": "М",
+        "H": "Н",
+        "O": "О",
+        "P": "Р",
+        "C": "С",
+        "T": "Т",
+        "Y": "У",
+        "X": "Х",
+        "a": "А",
+        "b": "В",
+        "e": "Е",
+        "k": "К",
+        "m": "М",
+        "h": "Н",
+        "o": "О",
+        "p": "Р",
+        "c": "С",
+        "t": "Т",
+        "y": "У",
+        "x": "Х",
     }
 )
 
 
 def normalize_plate(value: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", value.translate(CYR_TO_LAT).upper())
+    return re.sub(r"[^АВЕКМНОРСТУХ0-9]", "", value.translate(LAT_TO_CYR).upper())
+
+
+def display_plate(value: str | None) -> str:
+    if not value:
+        return "без номера"
+    normalized = normalize_plate(value)
+    return normalized or value
 
 
 def is_valid_plate(value: str) -> bool:

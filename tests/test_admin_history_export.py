@@ -12,7 +12,7 @@ def test_export_scores_supervisor_only():
 
 
 def test_history_auto_normalizes_plate_before_lookup():
-    assert normalize_plate("о917нх797") == "O917HX797"
+    assert normalize_plate("о917нх797") == "О917НХ797"
 
 
 def test_period_bounds_today():

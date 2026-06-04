@@ -121,6 +121,23 @@ class InspectionRepository:
         )
         return list(await self.session.scalars(query))
 
+    async def has_tire_check_for_plate(
+        self,
+        plate_normalized: str | None,
+        exclude_inspection_id: int | None = None,
+    ) -> bool:
+        if not plate_normalized:
+            return False
+        conditions = [
+            InspectionSession.plate_normalized == plate_normalized,
+            InspectionSession.status == SessionStatus.COMPLETED.value,
+            InspectionSession.tire_score.is_not(None),
+        ]
+        if exclude_inspection_id is not None:
+            conditions.append(InspectionSession.id != exclude_inspection_id)
+        query = select(InspectionSession.id).where(*conditions).limit(1)
+        return (await self.session.scalars(query)).first() is not None
+
     async def get_known_plate(self, plate_normalized: str) -> KnownVehiclePlate | None:
         query = select(KnownVehiclePlate).where(KnownVehiclePlate.plate_normalized == plate_normalized)
         return (await self.session.scalars(query)).first()

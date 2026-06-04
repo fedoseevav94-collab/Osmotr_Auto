@@ -8,6 +8,7 @@ from openpyxl import Workbook
 
 from app.constants import TIRE_TYPES
 from app.models import DamageControlCase, InspectionSession
+from app.utils import display_plate
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -111,7 +112,7 @@ def write_scores_xlsx(rows: list[InspectionSession], output_path: Path) -> Path:
     ws.title = "Оценки"
     ws.append(SCORE_HEADERS)
     for row in rows:
-        ws.append([row.plate_normalized or row.plate_raw or "", *_base_values(row)])
+        ws.append([display_plate(row.plate_normalized or row.plate_raw), *_base_values(row)])
     _autosize(ws)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -137,7 +138,7 @@ def write_problem_xlsx(rows: list[InspectionSession], output_path: Path) -> Path
     ws.title = "Проблемные авто"
     ws.append([*SCORE_HEADERS, "Причина попадания"])
     for row in rows:
-        ws.append([row.plate_normalized or row.plate_raw or "", *_base_values(row), problem_reason(row)])
+        ws.append([display_plate(row.plate_normalized or row.plate_raw), *_base_values(row), problem_reason(row)])
     _autosize(ws)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -154,7 +155,7 @@ def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
         ws.append(
             [
                 row.closed_at.strftime("%d.%m.%Y %H:%M") if row.closed_at else "",
-                row.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "",
+                display_plate(row.plate_normalized or inspection.plate_normalized or inspection.plate_raw),
                 row.driver_name or "",
                 row.damage_description or inspection.damage_description or "",
                 row.payment_amount if row.payment_amount is not None else "",

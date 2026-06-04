@@ -43,7 +43,7 @@ STANDARD_SCENARIOS = (
 )
 SURRENDER_SCENARIOS = {Scenario.RETURN, Scenario.TRANSFER}
 SCORE_SCENARIOS = {Scenario.RETURN, Scenario.TRANSFER, Scenario.PLANNED}
-TIRE_REQUIRED_SCENARIOS: set[Scenario] = set()
+TIRE_REQUIRED_SCENARIOS: set[Scenario] = {Scenario.TIRES}
 
 DTP_LABELS = {
     "guilty": "водитель виноват",

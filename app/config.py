@@ -34,7 +34,7 @@ class Settings:
     inspection_staff_usernames: set[str]
     data_dir: Path
     vehicle_plates_xlsx: Path | None
-    plate_audit_enabled: bool = True
+    plate_audit_enabled: bool = False
     plate_audit_hour: int = 4
     supervisor_telegram_id: int | None = None
     service_username: str = "Norblacksmith"
@@ -66,7 +66,7 @@ class Settings:
             inspection_staff_usernames=staff,
             data_dir=data_dir,
             vehicle_plates_xlsx=Path(plates_path) if plates_path else None,
-            plate_audit_enabled=os.getenv("PLATE_AUDIT_ENABLED", "true").strip().lower()
+            plate_audit_enabled=os.getenv("PLATE_AUDIT_ENABLED", "false").strip().lower()
             not in {"0", "false", "no", "off"},
             plate_audit_hour=int(os.getenv("PLATE_AUDIT_HOUR", "4")),
             supervisor_telegram_id=optional_int_env("SUPERVISOR_TELEGRAM_ID"),

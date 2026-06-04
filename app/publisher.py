@@ -8,12 +8,12 @@ from aiogram.types import InputMediaPhoto, Message
 from app.constants import DTP_LABELS, PhotoType, SCENARIO_MARKERS, SCORE_FIELDS, TIRE_TYPES, Scenario
 from app.keyboards import plate_correction_keyboard
 from app.models import InspectionSession
-from app.utils import user_display
+from app.utils import display_plate, user_display
 
 
 def build_summary(inspection: InspectionSession) -> str:
     scenario = Scenario(inspection.scenario)
-    plate = inspection.plate_normalized or inspection.plate_raw or "без номера"
+    plate = display_plate(inspection.plate_normalized or inspection.plate_raw)
     marker = SCENARIO_MARKERS[scenario]
     dt = inspection.completed_at or inspection.updated_at or inspection.created_at or datetime.now(UTC)
     lines = [

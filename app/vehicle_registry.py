@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repository import InspectionRepository
-from app.utils import normalize_plate
+from app.utils import display_plate, normalize_plate
 
 
 @dataclass(frozen=True)
@@ -38,9 +38,10 @@ def read_vehicle_rows(path: Path) -> list[dict[str, str | None]]:
         plate_normalized = normalize_plate(plate_raw)
         if not plate_normalized:
             continue
+        plate_display = display_plate(plate_normalized)
         result.append(
             {
-                "plate_raw": plate_raw,
+                "plate_raw": plate_display,
                 "plate_normalized": plate_normalized,
                 "brand": _cell(row.get("Марка")),
                 "model": _cell(row.get("Модель")),

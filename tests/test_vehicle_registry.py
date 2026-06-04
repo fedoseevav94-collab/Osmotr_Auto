@@ -17,8 +17,8 @@ def test_read_vehicle_registry_from_excel(tmp_path: Path):
 
     assert rows == [
         {
-            "plate_raw": "о917нх797",
-            "plate_normalized": "O917HX797",
+            "plate_raw": "О917НХ797",
+            "plate_normalized": "О917НХ797",
             "brand": "Kia",
             "model": "Rio",
             "status": "Доступно",

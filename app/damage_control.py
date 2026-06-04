@@ -19,6 +19,7 @@ from app.config import Settings
 from app.constants import Scenario
 from app.db import session_scope
 from app.models import BotUser, DamageControlCase, InspectionSession
+from app.utils import display_plate
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -629,7 +630,7 @@ def manager_prompt_text(
         if mention_override is not None
         else active_manager_mentions(settings.manager_days_off, _local_now(settings).weekday())
     )
-    plate = case.plate_normalized or inspection.plate_normalized or inspection.plate_raw or "без номера"
+    plate = display_plate(case.plate_normalized or inspection.plate_normalized or inspection.plate_raw)
     lines = []
     if mentions:
         lines += [mentions, ""]
@@ -656,7 +657,7 @@ def service_status_text(case: DamageControlCase, settings: Settings) -> str:
 
 
 def service_amount_request_text(case: DamageControlCase) -> str:
-    plate = case.plate_normalized or "без номера"
+    plate = display_plate(case.plate_normalized)
     return (
         f"Нужна оценка/сумма по повреждению авто {plate}.\n"
         "Ответьте reply к этому сообщению."
@@ -743,7 +744,7 @@ async def _send_service_private_reminder(
     if not service_user_id:
         logger.info("Cannot send private service reminder: @%s has not started the bot", settings.service_username)
         return
-    plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
+    plate = display_plate(case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw)
     try:
         await bot.send_message(
             chat_id=service_user_id,
@@ -1006,7 +1007,7 @@ def close_summary_text(
     comment: str,
 ) -> str:
     username = f" (@{actor_username})" if actor_username else ""
-    plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
+    plate = display_plate(case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw)
     dt = case.inspection.completed_at or case.inspection.updated_at or case.created_at
     action = "проверку без списания"
     if case.close_type == "CLOSED_NO_CHARGE_WITH_REASON":
@@ -1033,7 +1034,7 @@ async def _escalate(bot: Bot, session: AsyncSession, case: DamageControlCase, se
     case.status = ESCALATED
     case.escalated_at = _utcnow()
     case.first_reminder_due_at = None
-    plate = case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw or "без номера"
+    plate = display_plate(case.plate_normalized or case.inspection.plate_normalized or case.inspection.plate_raw)
     responsible = f"@{case.waiting_comment_username}" if case.waiting_comment_username else active_manager_mentions(
         settings.manager_days_off,
         _local_now(settings).weekday(),

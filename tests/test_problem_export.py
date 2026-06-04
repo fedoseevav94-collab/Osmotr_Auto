@@ -19,14 +19,14 @@ async def test_problem_rows_include_damage_and_low_tire_score():
                 InspectionSession(
                     telegram_user_id=1,
                     status="COMPLETED",
-                    plate_normalized="A111AA797",
+                    plate_normalized="А111АА797",
                     completed_at=datetime(2026, 6, 2, 10),
                     has_damage=True,
                 ),
                 InspectionSession(
                     telegram_user_id=1,
                     status="COMPLETED",
-                    plate_normalized="B222BB797",
+                    plate_normalized="В222ВВ797",
                     completed_at=datetime(2026, 6, 2, 11),
                     has_damage=False,
                     tire_score=3,
@@ -34,7 +34,7 @@ async def test_problem_rows_include_damage_and_low_tire_score():
                 InspectionSession(
                     telegram_user_id=1,
                     status="COMPLETED",
-                    plate_normalized="C333CC797",
+                    plate_normalized="С333СС797",
                     completed_at=datetime(2026, 6, 2, 12),
                     has_damage=False,
                     body_score=5,
@@ -48,4 +48,4 @@ async def test_problem_rows_include_damage_and_low_tire_score():
     async with session_scope(maker) as session:
         repo = InspectionRepository(session)
         rows = await repo.problem_rows(datetime(2026, 6, 2), datetime(2026, 6, 3))
-        assert {row.plate_normalized for row in rows} == {"A111AA797", "B222BB797"}
+        assert {row.plate_normalized for row in rows} == {"А111АА797", "В222ВВ797"}
