@@ -12,6 +12,7 @@ from app.damage_control import (
     classify_close_comment,
     manager_prompt_text,
     parse_payment_amount,
+    parse_split_payment_amount,
     parse_service_estimate_amount,
     payment_type_keyboard,
     parse_manager_days_off,
@@ -85,8 +86,22 @@ def test_payment_type_keyboard_uses_business_labels() -> None:
         "Оплата по терминалу",
         "Списание с депозита",
         "С баланса диспетчерской",
+        "Раздельная оплата",
         "↩️ Назад",
     ]
+
+
+def test_split_payment_amount_parsing_prefers_total_line() -> None:
+    assert (
+        parse_split_payment_amount(
+            "30.000р - за все повреждения.\n15000р - с депозита\n15.000р - перевел Али"
+        )
+        == 30000
+    )
+
+
+def test_split_payment_amount_parsing_sums_parts_without_total_line() -> None:
+    assert parse_split_payment_amount("15000 - с депозита\n15 000 - QR") == 30000
 
 
 def test_back_keyboard_has_single_back_button() -> None:

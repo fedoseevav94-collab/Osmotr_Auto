@@ -84,6 +84,7 @@ PAYMENT_TYPE_LABELS = {
     "terminal": "Оплата по терминалу",
     "deposit": "Списание с депозита",
     "dispatcher_balance": "С баланса диспетчерской",
+    "split_payment": "Раздельная оплата",
 }
 
 PAYMENT_TYPE_CLOSE_STATUS = {
@@ -94,6 +95,7 @@ PAYMENT_TYPE_CLOSE_STATUS = {
     "terminal": "CLOSED_PAID_CASH",
     "deposit": "CLOSED_BALANCE_CHARGED",
     "dispatcher_balance": "CLOSED_BALANCE_CHARGED",
+    "split_payment": "CLOSED_PAID_CASH",
 }
 
 NO_CHARGE_PAYMENT_TYPE = "Без списания"
@@ -464,23 +466,32 @@ async def damage_control_message(message: Message) -> None:
             )
             if not case:
                 return
-            amount = parse_payment_amount(text)
+            payment_type = case.payment_type or "cashbox"
+            amount = parse_split_payment_amount(text) if payment_type == "split_payment" else parse_payment_amount(text)
             if amount is None:
+                error_text = (
+                    "Не увидел сумму. Для раздельной оплаты напишите разбивку, например:\n"
+                    "30000 - общая сумма\n"
+                    "15000 - с депозита\n"
+                    "15000 - QR"
+                    if payment_type == "split_payment"
+                    else "Не увидел сумму. Напишите только сумму, например: 5000 или 5 тыс."
+                )
                 await message.bot.send_message(
                     chat_id=message.chat.id,
-                    text="Не увидел сумму. Напишите только сумму, например: 5000 или 5 тыс.",
+                    text=error_text,
                     reply_to_message_id=message.message_id,
                     allow_sending_without_reply=True,
                 )
                 return
-            payment_type = case.payment_type or "cashbox"
+            close_comment = text if payment_type == "split_payment" else case.close_comment
             await _close_case(
                 message.bot,
                 case,
                 message.from_user.full_name,
                 message.from_user.username,
                 PAYMENT_TYPE_CLOSE_STATUS.get(payment_type, "CLOSED_PAID_CASH"),
-                case.close_comment or f"{PAYMENT_TYPE_LABELS.get(payment_type, payment_type)}: {amount}",
+                close_comment or f"{PAYMENT_TYPE_LABELS.get(payment_type, payment_type)}: {amount}",
                 payment_type=PAYMENT_TYPE_LABELS.get(payment_type, payment_type),
                 payment_amount=amount,
             )
@@ -568,6 +579,25 @@ def parse_payment_amount(text: str) -> int | None:
         return None
     amount = int(value * multiplier)
     return amount if amount > 0 else None
+
+
+def parse_split_payment_amount(text: str) -> int | None:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    amounts: list[int] = []
+    total_markers = ("общ", "итог", "все повреж", "за все", "за всё", "всего")
+    for line in lines:
+        amount = parse_payment_amount(line)
+        if amount is None:
+            continue
+        normalized = " ".join(line.lower().replace("ё", "е").split())
+        if any(marker in normalized for marker in total_markers):
+            return amount
+        amounts.append(amount)
+    if not amounts:
+        return None
+    return sum(amounts)
 
 
 def parse_service_estimate_amount(text: str) -> int | None:
@@ -821,10 +851,21 @@ async def _ask_payment_amount(
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
     label = PAYMENT_TYPE_LABELS.get(payment_type, payment_type)
     service_hint = f"\n@Norblacksmith указал: {case.service_amount}." if case.service_amount else ""
+    if payment_type == "split_payment":
+        text = (
+            f"{mention}, тип: {label}.{service_hint}\n"
+            "Напишите одним сообщением общую сумму и разбивку по способам.\n\n"
+            "Пример:\n"
+            "30000 - общая сумма\n"
+            "15000 - с депозита\n"
+            "15000 - QR / перевод"
+        )
+    else:
+        text = f"{mention}, тип: {label}.{service_hint}\nНапишите сумму списания/оплаты одним сообщением."
     await _send_case_followup(
         bot,
         case,
-        f"{mention}, тип: {label}.{service_hint}\nНапишите сумму списания/оплаты одним сообщением.",
+        text,
         reply_markup=back_keyboard(case.id),
     )
 
@@ -854,7 +895,11 @@ async def _send_pending_closure_reminder(
     elif case.status == WAITING_DISPATCHER_COMMENT:
         step = "напишите название диспетчерской"
     elif case.status == WAITING_PAYMENT_AMOUNT:
-        step = "напишите сумму списания/оплаты"
+        step = (
+            "напишите общую сумму и разбивку по способам"
+            if case.payment_type == "split_payment"
+            else "напишите сумму списания/оплаты"
+        )
     elif case.status == WAITING_CLOSE_COMMENT:
         step = "напишите комментарий по закрытию"
     await _send_case_followup(
