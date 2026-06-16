@@ -8,6 +8,7 @@ from app.keyboards import (
     reset_confirm_keyboard,
     driver_remarks_keyboard,
     export_period_keyboard,
+    plate_choices_keyboard,
     problem_period_keyboard,
     scenario_keyboard,
     staff_idle_keyboard,
@@ -15,6 +16,7 @@ from app.keyboards import (
     staff_reply_keyboard,
     start_keyboard,
     supervisor_menu_keyboard,
+    tire_type_keyboard,
 )
 
 
@@ -85,3 +87,26 @@ def test_reset_requires_inline_confirmation():
 
 def test_driver_remarks_keyboard_has_already_option():
     assert _inline_labels(driver_remarks_keyboard()) == ["✅ Да", "❌ Нет", "↩️ Указал ранее"]
+
+
+def test_tire_type_keyboard_has_mixed_type():
+    assert _inline_labels(tire_type_keyboard()) == ["❄️ Зимняя", "☀️ Летняя", "🔀 Разная (зима/лето)"]
+
+
+def test_plate_choices_keyboard_hides_duplicate_plates():
+    class Plate:
+        def __init__(self, plate_normalized: str, brand: str = "Haval", model: str = "F7"):
+            self.plate_normalized = plate_normalized
+            self.brand = brand
+            self.model = model
+
+    labels = _inline_labels(
+        plate_choices_keyboard(
+            [
+                Plate("Т500НТ797"),
+                Plate("Т500НТ797"),
+            ]
+        )
+    )
+
+    assert labels == ["🚘 Т500НТ797 · Haval F7", "✍️ Ввести номер вручную"]

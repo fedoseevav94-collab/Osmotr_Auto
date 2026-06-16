@@ -66,6 +66,7 @@ SCORE_REFRESH_DAYS = 30
 TIRE_TYPES = {
     "winter": "зимняя",
     "summer": "летняя",
+    "mixed": "разная (зима/лето)",
 }
 
 PROBLEM_SCORE_THRESHOLD = 4

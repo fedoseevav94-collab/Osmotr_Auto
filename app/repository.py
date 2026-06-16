@@ -179,7 +179,11 @@ class InspectionRepository:
             .order_by(KnownVehiclePlate.plate_normalized)
             .limit(limit)
         )
-        return list(await self.session.scalars(query))
+        rows = list(await self.session.scalars(query))
+        unique: dict[str, KnownVehiclePlate] = {}
+        for row in rows:
+            unique.setdefault(row.plate_normalized, row)
+        return list(unique.values())[:limit]
 
     async def latest_user_id_by_username(self, username: str) -> int | None:
         normalized = username.strip().lstrip("@").lower()

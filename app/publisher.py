@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InputMediaPhoto, Message
 
 from app.constants import DTP_LABELS, PhotoType, SCENARIO_MARKERS, SCORE_FIELDS, TIRE_TYPES, Scenario
 from app.keyboards import plate_correction_keyboard
 from app.models import InspectionSession
 from app.utils import display_plate, user_display
+
+logger = logging.getLogger(__name__)
 
 
 def build_summary(inspection: InspectionSession) -> str:
@@ -84,17 +88,40 @@ async def publish_to_fp(bot: Bot, inspection: InspectionSession, fp_chat_id: int
         in {PhotoType.PLATE.value, PhotoType.DASHBOARD.value, PhotoType.DAMAGE.value, PhotoType.TIRE.value}
     ]
 
+    logger.info("Publishing inspection %s media: %s items", inspection.id, len(media_photos))
     if len(media_photos) == 1:
-        await bot.send_photo(
-            chat_id=fp_chat_id,
-            photo=media_photos[0].telegram_file_id,
-        )
+        try:
+            await bot.send_photo(
+                chat_id=fp_chat_id,
+                photo=media_photos[0].telegram_file_id,
+            )
+        except TelegramBadRequest:
+            logger.exception("Failed to send single inspection photo for inspection %s", inspection.id)
     elif len(media_photos) > 1:
-        media = [InputMediaPhoto(media=photo.telegram_file_id) for photo in media_photos]
-        await bot.send_media_group(chat_id=fp_chat_id, media=media)
+        for batch_index, chunk in enumerate(_chunks(media_photos, 10), start=1):
+            logger.info(
+                "Sending inspection %s media group batch %s with %s items",
+                inspection.id,
+                batch_index,
+                len(chunk),
+            )
+            media = [InputMediaPhoto(media=photo.telegram_file_id) for photo in chunk]
+            try:
+                await bot.send_media_group(chat_id=fp_chat_id, media=media)
+            except TelegramBadRequest:
+                logger.exception(
+                    "Failed to send inspection %s media group batch %s",
+                    inspection.id,
+                    batch_index,
+                )
     message = await bot.send_message(
         chat_id=fp_chat_id,
         text=summary,
         reply_markup=plate_correction_keyboard(inspection.id),
     )
     return message.message_id if message else None
+
+
+def _chunks(items: list, size: int):
+    for index in range(0, len(items), size):
+        yield items[index : index + size]

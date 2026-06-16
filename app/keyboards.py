@@ -166,15 +166,20 @@ def score_keyboard(prefix: str) -> InlineKeyboardMarkup:
 
 
 def tire_type_keyboard() -> InlineKeyboardMarkup:
+    labels = {
+        "winter": "❄️ Зимняя",
+        "summer": "☀️ Летняя",
+        "mixed": "🔀 Разная (зима/лето)",
+    }
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=("❄️ Зимняя" if code == "winter" else "☀️ Летняя"),
+                    text=labels.get(code, label),
                     callback_data=f"tire_type:{code}",
                 )
             ]
-            for code in TIRE_TYPES
+            for code, label in TIRE_TYPES.items()
         ]
     )
 
@@ -192,7 +197,11 @@ def tire_score_keyboard() -> InlineKeyboardMarkup:
 
 def plate_choices_keyboard(plates) -> InlineKeyboardMarkup:
     rows = []
+    seen: set[str] = set()
     for plate in plates:
+        if plate.plate_normalized in seen:
+            continue
+        seen.add(plate.plate_normalized)
         details = " ".join(part for part in (plate.brand, plate.model) if part)
         label = f"🚘 {display_plate(plate.plate_normalized)}"
         if details:

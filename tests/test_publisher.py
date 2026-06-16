@@ -1,5 +1,7 @@
 import pytest
 
+from aiogram.exceptions import TelegramBadRequest
+
 from app.constants import PhotoType, Scenario
 from app.models import InspectionPhoto, InspectionSession
 from app.publisher import build_summary, publish_to_fp
@@ -11,8 +13,9 @@ class FakeMessage:
 
 
 class FakeBot:
-    def __init__(self):
+    def __init__(self, fail_media_groups: bool = False):
         self.calls = []
+        self.fail_media_groups = fail_media_groups
 
     async def send_photo(self, **kwargs):
         self.calls.append(("send_photo", kwargs))
@@ -20,6 +23,8 @@ class FakeBot:
 
     async def send_media_group(self, **kwargs):
         self.calls.append(("send_media_group", kwargs))
+        if self.fail_media_groups:
+            raise TelegramBadRequest(method=None, message="Bad Request: too many messages to send as an album")
         return [FakeMessage(11), FakeMessage(12)]
 
     async def send_message(self, **kwargs):
@@ -64,6 +69,14 @@ def test_summary_includes_tire_block_when_present():
     assert "Комментарий: Износ протектора" in summary
 
 
+def test_summary_supports_mixed_tire_type():
+    inspection = make_inspection([])
+    inspection.tire_type = "mixed"
+    inspection.tire_score = 4
+    summary = build_summary(inspection)
+    assert "Тип: разная (зима/лето)" in summary
+
+
 def test_summary_includes_driver_remarks_for_return_scenarios():
     inspection = make_inspection([])
     inspection.driver_has_remarks = True
@@ -87,3 +100,40 @@ async def test_publish_uses_send_methods_not_forward():
     assert bot.calls[0][0] == "send_media_group"
     assert bot.calls[1][0] == "send_message"
     assert all(call[0] != "forward_message" for call in bot.calls)
+
+
+@pytest.mark.asyncio
+async def test_publish_splits_more_than_ten_photos_into_media_groups():
+    inspection = make_inspection(
+        [
+            InspectionPhoto(
+                id=index,
+                photo_type=PhotoType.DAMAGE.value,
+                telegram_file_id=f"p{index}",
+                telegram_file_unique_id=f"pu{index}",
+            )
+            for index in range(1, 13)
+        ]
+    )
+    bot = FakeBot()
+    message_id = await publish_to_fp(bot, inspection, 1001905865504)
+
+    assert message_id == 13
+    assert [call[0] for call in bot.calls] == ["send_media_group", "send_media_group", "send_message"]
+    assert len(bot.calls[0][1]["media"]) == 10
+    assert len(bot.calls[1][1]["media"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_publish_sends_text_even_if_media_group_fails():
+    inspection = make_inspection(
+        [
+            InspectionPhoto(id=1, photo_type=PhotoType.PLATE.value, telegram_file_id="p1", telegram_file_unique_id="pu1"),
+            InspectionPhoto(id=2, photo_type=PhotoType.DAMAGE.value, telegram_file_id="p2", telegram_file_unique_id="pu2"),
+        ]
+    )
+    bot = FakeBot(fail_media_groups=True)
+    message_id = await publish_to_fp(bot, inspection, 1001905865504)
+
+    assert message_id == 13
+    assert [call[0] for call in bot.calls] == ["send_media_group", "send_message"]
