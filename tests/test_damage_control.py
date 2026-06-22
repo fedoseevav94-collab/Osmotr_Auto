@@ -33,18 +33,18 @@ def make_settings() -> Settings:
         inspection_staff_usernames=set(),
         data_dir=Path("/tmp"),
         vehicle_plates_xlsx=None,
-        manager_days_off="pagorodu:thu,fri;Wuggfi:wed,thu;lalalas19:sat,sun;serb_98:sat,sun",
+        manager_days_off="pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun",
         office_timezone="Europe/Moscow",
     )
 
 
 def test_active_manager_mentions_excludes_day_off() -> None:
-    days_off = parse_manager_days_off("pagorodu:thu,fri;Wuggfi:wed,thu;Kicket22:sat,sun")
+    days_off = parse_manager_days_off("pagorodu:thu,fri;Kicket22:sat,sun")
 
     assert days_off["pagorodu"] == {3, 4}
     assert days_off["kicket22"] == {5, 6}
-    assert active_manager_mentions("pagorodu:thu,fri;Wuggfi:wed,thu", 3) == "Менеджеры"
-    assert active_manager_mentions("pagorodu:thu,fri;Wuggfi:wed,thu;Kicket22:sat,sun", 1) == "@pagorodu @wuggfi @kicket22"
+    assert active_manager_mentions("pagorodu:thu,fri", 3) == "Менеджеры"
+    assert active_manager_mentions("pagorodu:thu,fri;Kicket22:sat,sun", 1) == "@pagorodu @kicket22"
     assert active_manager_mentions("Kicket22:sat,sun", 5) == "Менеджеры"
 
 

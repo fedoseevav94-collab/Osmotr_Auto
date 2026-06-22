@@ -67,7 +67,7 @@ REMINDER_INTERVAL_MINUTES=30
 MAX_REMINDERS=3
 FP_MANAGER_RESPONSE_DELAY_MINUTES=45
 OFFICE_TIMEZONE=Europe/Moscow
-MANAGER_DAYS_OFF=pagorodu:thu,fri;Wuggfi:wed,thu;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun
+MANAGER_DAYS_OFF=pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun
 ```
 
 Важно: бот должен быть добавлен в чат `ФП - фотофиксация повреждений` и иметь право отправлять сообщения/медиа.

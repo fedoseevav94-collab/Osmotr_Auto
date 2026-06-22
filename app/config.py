@@ -39,7 +39,7 @@ class Settings:
     supervisor_telegram_id: int | None = None
     service_username: str = "Norblacksmith"
     manager_days_off: str = (
-        "pagorodu:thu,fri;Wuggfi:wed,thu;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun"
+        "pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun"
     )
     reminder_first_delay_minutes: int = 10
     fp_manager_response_delay_minutes: int = 45
@@ -73,7 +73,7 @@ class Settings:
             service_username=os.getenv("SERVICE_USERNAME", "Norblacksmith").strip().lstrip("@"),
             manager_days_off=os.getenv(
                 "MANAGER_DAYS_OFF",
-                "pagorodu:thu,fri;Wuggfi:wed,thu;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun",
+                "pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun",
             ).strip(),
             reminder_first_delay_minutes=int(os.getenv("REMINDER_FIRST_DELAY_MINUTES", "10")),
             fp_manager_response_delay_minutes=int(os.getenv("FP_MANAGER_RESPONSE_DELAY_MINUTES", "45")),
