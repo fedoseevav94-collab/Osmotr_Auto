@@ -3,6 +3,8 @@ from pathlib import Path
 
 from app.config import Settings
 from app.damage_control import (
+    ESCALATED,
+    FINAL_STATUSES,
     WAITING_DRIVER_NAME,
     WAITING_DISPATCHER_COMMENT,
     WAITING_PAYMENT_AMOUNT,
@@ -132,6 +134,13 @@ def test_payment_type_button_is_allowed_after_driver_name() -> None:
         "Тип списания выбирает менеджер, который начал закрытие."
     )
     assert _waiting_callback_error(case, "pay", None, 42) == "Уже жду данные по закрытию."
+
+
+def test_escalated_case_can_still_be_closed_by_manager() -> None:
+    case = DamageControlCase(status=ESCALATED)
+
+    assert ESCALATED not in FINAL_STATUSES
+    assert _waiting_callback_error(case, "pay", None, 42) is None
 
 
 def test_pending_step_text_names_manager_waiting_action() -> None:
