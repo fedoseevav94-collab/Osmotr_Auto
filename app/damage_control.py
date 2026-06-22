@@ -702,7 +702,7 @@ def active_manager_mentions(raw_days_off: str, weekday: int) -> str:
 def active_manager_usernames(raw_days_off: str, weekday: int) -> list[str]:
     days_off = parse_manager_days_off(raw_days_off)
     if not days_off:
-        return ["pagorodu", "Wuggfi", "lalalas19", "serb_98"]
+        return ["pagorodu", "Wuggfi", "lalalas19", "serb_98", "Kicket22"]
     return [username for username, off_days in days_off.items() if weekday not in off_days]
 
 

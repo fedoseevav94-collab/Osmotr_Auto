@@ -39,11 +39,13 @@ def make_settings() -> Settings:
 
 
 def test_active_manager_mentions_excludes_day_off() -> None:
-    days_off = parse_manager_days_off("pagorodu:thu,fri;Wuggfi:wed,thu")
+    days_off = parse_manager_days_off("pagorodu:thu,fri;Wuggfi:wed,thu;Kicket22:sat,sun")
 
     assert days_off["pagorodu"] == {3, 4}
+    assert days_off["kicket22"] == {5, 6}
     assert active_manager_mentions("pagorodu:thu,fri;Wuggfi:wed,thu", 3) == "Менеджеры"
-    assert active_manager_mentions("pagorodu:thu,fri;Wuggfi:wed,thu", 1) == "@pagorodu @wuggfi"
+    assert active_manager_mentions("pagorodu:thu,fri;Wuggfi:wed,thu;Kicket22:sat,sun", 1) == "@pagorodu @wuggfi @kicket22"
+    assert active_manager_mentions("Kicket22:sat,sun", 5) == "Менеджеры"
 
 
 def test_close_comment_requires_real_action_keyword() -> None:
