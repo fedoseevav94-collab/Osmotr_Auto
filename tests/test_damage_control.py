@@ -8,10 +8,12 @@ from app.damage_control import (
     WAITING_DRIVER_NAME,
     WAITING_DISPATCHER_COMMENT,
     WAITING_PAYMENT_AMOUNT,
+    WAITING_PAYMENT_CORRECTION,
     WAITING_PAYMENT_TYPE,
     active_manager_mentions,
     back_keyboard,
     classify_close_comment,
+    edit_charge_keyboard,
     manager_prompt_text,
     parse_payment_amount,
     parse_split_payment_amount,
@@ -106,6 +108,8 @@ def test_split_payment_amount_parsing_prefers_total_line() -> None:
 
 def test_split_payment_amount_parsing_sums_parts_without_total_line() -> None:
     assert parse_split_payment_amount("15000 - с депозита\n15 000 - QR") == 30000
+    assert parse_split_payment_amount("17 переводом 3 завтра скинет") == 20000
+    assert parse_split_payment_amount("20000 - 17000 перевёл, 3000 завтра") == 20000
 
 
 def test_back_keyboard_has_single_back_button() -> None:
@@ -116,11 +120,20 @@ def test_back_keyboard_has_single_back_button() -> None:
     assert button.callback_data == "damage_control:back:7"
 
 
+def test_edit_charge_keyboard_has_correction_button() -> None:
+    keyboard = edit_charge_keyboard(7)
+    button = keyboard.inline_keyboard[0][0]
+
+    assert button.text == "✏️ Исправить списание"
+    assert button.callback_data == "damage_control:edit_charge:7"
+
+
 def test_payment_flow_has_required_driver_name_step() -> None:
     assert WAITING_DRIVER_NAME == "WAITING_DRIVER_NAME"
     assert WAITING_PAYMENT_TYPE == "WAITING_PAYMENT_TYPE"
     assert WAITING_DISPATCHER_COMMENT == "WAITING_DISPATCHER_COMMENT"
     assert WAITING_PAYMENT_AMOUNT == "WAITING_PAYMENT_AMOUNT"
+    assert WAITING_PAYMENT_CORRECTION == "WAITING_PAYMENT_CORRECTION"
 
 
 def test_payment_type_button_is_allowed_after_driver_name() -> None:
