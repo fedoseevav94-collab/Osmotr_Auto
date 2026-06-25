@@ -543,7 +543,7 @@ async def damage_control_message(message: Message) -> None:
                     allow_sending_without_reply=True,
                 )
                 return
-            close_comment = text if payment_type == "split_payment" else case.close_comment
+            close_comment = text
             await _close_case(
                 message.bot,
                 case,

@@ -13,6 +13,7 @@ from app.damage_control import (
     active_manager_mentions,
     back_keyboard,
     classify_close_comment,
+    close_summary_text,
     edit_charge_keyboard,
     manager_prompt_text,
     parse_payment_amount,
@@ -65,6 +66,7 @@ def test_payment_amount_parsing() -> None:
     assert parse_payment_amount("5 000") == 5000
     assert parse_payment_amount("5.000") == 5000
     assert parse_payment_amount("5 тыс") == 5000
+    assert parse_payment_amount("5000р по 1000р в сутки") == 5000
     assert parse_payment_amount("ок") is None
 
 
@@ -147,6 +149,36 @@ def test_payment_type_button_is_allowed_after_driver_name() -> None:
         "Тип списания выбирает менеджер, который начал закрытие."
     )
     assert _waiting_callback_error(case, "pay", None, 42) == "Уже жду данные по закрытию."
+
+
+def test_close_summary_keeps_manager_payment_comment() -> None:
+    inspection = InspectionSession(
+        id=1,
+        status="COMPLETED",
+        scenario="Плановый осмотр",
+        plate_normalized="Х470СХ797",
+        completed_at=datetime(2026, 6, 24, 11, 50),
+    )
+    case = DamageControlCase(
+        id=2,
+        inspection_id=1,
+        status="CLOSED_INSTALLMENT",
+        category="DAMAGE_CHARGE_REQUIRED",
+        plate_normalized="Х470СХ797",
+        fp_chat_id=-1001905865504,
+        fp_message_id=123,
+        driver_name="ФАХРИЕВ ЭДУАРД АЙДАРОВИЧ",
+        payment_type="Рассрочка в 1С",
+        payment_amount=5000,
+        close_type="CLOSED_INSTALLMENT",
+        inspection=inspection,
+    )
+
+    text = close_summary_text(case, "Рафаэль", "lalalas19", "5000р по 1000р в сутки")
+
+    assert "Сумма: 5000" in text
+    assert "Комментарий: 5000р по 1000р в сутки" in text
+    assert "Комментарий: Рассрочка в 1С: 5000" not in text
 
 
 def test_escalated_case_can_still_be_closed_by_manager() -> None:
