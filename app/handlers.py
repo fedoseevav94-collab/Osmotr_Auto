@@ -8,7 +8,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, FSInputFile, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
@@ -1512,6 +1512,16 @@ async def cancel_command(message: Message, state: FSMContext) -> None:
     await cancel(message, state)
 
 
+@router.message(Command("hide", "menu_off", "скрыть"))
+async def hide_keyboard(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer(
+        _accent("✅ Меню скрыто. Чтобы открыть снова, отправьте /start."),
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML",
+    )
+
+
 async def cancel(
     message: Message,
     state: FSMContext,
@@ -1524,7 +1534,12 @@ async def cancel(
         repo = InspectionRepository(session)
         inspection = await repo.active_for_user(user_id)
         if inspection is None:
-            await message.answer(_accent("ℹ️ Активного осмотра нет."), reply_markup=staff_idle_keyboard(), parse_mode="HTML")
+            await state.clear()
+            await message.answer(
+                _accent("ℹ️ Активного осмотра нет. Меню скрыто, открыть снова можно через /start."),
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode="HTML",
+            )
             return
         await repo.cancel(inspection)
         await repo.log_action(inspection, "CANCEL", user_id, username)
