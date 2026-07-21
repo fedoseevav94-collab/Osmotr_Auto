@@ -45,6 +45,7 @@ def test_positive_supergroup_chat_id_is_normalized_for_bot_api():
 
 def test_charge_export_headers_are_business_fields():
     assert CHARGE_HEADERS == [
+        "ID списания",
         "Дата и время списания",
         "Номер авто",
         "ФИО водителя",

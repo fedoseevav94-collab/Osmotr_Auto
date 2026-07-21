@@ -54,6 +54,7 @@ def test_supervisor_menu_has_management_actions_and_staff_mode():
     assert "📥 Выгрузить оценки" in labels
     assert "⚠️ Проблемные авто" in labels
     assert "💸 Выгрузить списания" in labels
+    assert "✏️ Закрыть/исправить списание" in labels
     assert "🔓 Открытые повреждения" in labels
     assert "🛠️ Ждём сервис" in labels
     assert "🛞 Проверка резины" in labels

@@ -56,6 +56,7 @@ def supervisor_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📥 Выгрузить оценки", callback_data="supervisor:export_scores")],
             [InlineKeyboardButton(text="⚠️ Проблемные авто", callback_data="supervisor:export_problems")],
             [InlineKeyboardButton(text="💸 Выгрузить списания", callback_data="supervisor:export_charges")],
+            [InlineKeyboardButton(text="✏️ Закрыть/исправить списание", callback_data="supervisor:edit_charge")],
             [InlineKeyboardButton(text="🔓 Открытые повреждения", callback_data="supervisor:open_damages")],
             [InlineKeyboardButton(text="🛠️ Ждём сервис", callback_data="supervisor:service_waiting")],
             [InlineKeyboardButton(text="🛞 Проверка резины", callback_data="supervisor:tire_check")],

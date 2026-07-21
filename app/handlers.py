@@ -24,7 +24,7 @@ from app.constants import (
     TIRE_TYPES,
     Scenario,
 )
-from app.damage_control import FINAL_STATUSES, start_damage_control_for_inspection
+from app.damage_control import FINAL_STATUSES, open_damage_cases_keyboard, start_damage_control_for_inspection
 from app.db import session_scope
 from app.export import period_bounds, write_charge_xlsx, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
 from app.keyboards import (
@@ -493,6 +493,14 @@ async def supervisor_menu_action(callback: CallbackQuery, state: FSMContext) -> 
         await callback.message.answer("Выберите период для проблемных авто:", reply_markup=problem_period_keyboard())
     elif action == "export_charges":
         await callback.message.answer("Выберите период для списаний:", reply_markup=charge_period_keyboard())
+    elif action == "edit_charge":
+        await _set_state(state, ExportFlow.charge_edit_case_id)
+        await callback.message.answer(
+            "Напишите ID списания/повреждения.\n\n"
+            "Пример: 25\n\n"
+            "ID видно в списке открытых повреждений: /open_damages. "
+            "Также он будет в выгрузке списаний после обновления."
+        )
     elif action == "open_damages":
         await send_open_damages(callback.message)
     elif action == "service_waiting":
@@ -1750,6 +1758,23 @@ async def export_charge_custom_period(message: Message, state: FSMContext) -> No
     await send_charge_export(message, start, end)
 
 
+@router.message(ExportFlow.charge_edit_case_id, F.text)
+async def supervisor_charge_edit_case_id(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
+    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    case_id = (message.text or "").strip()
+    if not case_id.isdigit():
+        await message.answer("Напишите только ID, например: 25")
+        return
+    await state.clear()
+    from app.damage_control import start_supervisor_charge_edit
+
+    await start_supervisor_charge_edit(message, int(case_id))
+
+
 async def send_scores_export(message: Message, start: datetime, end: datetime) -> None:
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
@@ -1795,7 +1820,9 @@ async def send_open_damages(message: Message) -> None:
         )
     if len(rows) > 20:
         lines.append(f"...и ещё {len(rows) - 20}")
-    await message.answer("\n".join(lines))
+    lines.append("")
+    lines.append("Для закрытия или исправления нажмите кнопку с ID ниже.")
+    await message.answer("\n".join(lines), reply_markup=open_damage_cases_keyboard(rows))
 
 
 async def send_service_waiting(message: Message) -> None:

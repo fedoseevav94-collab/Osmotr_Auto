@@ -36,6 +36,7 @@ SCORE_HEADERS = [
 HISTORY_HEADERS = SCORE_HEADERS[1:]
 
 CHARGE_HEADERS = [
+    "ID списания",
     "Дата и время списания",
     "Номер авто",
     "ФИО водителя",
@@ -154,6 +155,7 @@ def write_charge_xlsx(rows: list[DamageControlCase], output_path: Path) -> Path:
         inspection = row.inspection
         ws.append(
             [
+                row.id,
                 row.closed_at.strftime("%d.%m.%Y %H:%M") if row.closed_at else "",
                 display_plate(row.plate_normalized or inspection.plate_normalized or inspection.plate_raw),
                 row.driver_name or "",

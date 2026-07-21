@@ -10,13 +10,16 @@ from app.damage_control import (
     WAITING_PAYMENT_AMOUNT,
     WAITING_PAYMENT_CORRECTION,
     WAITING_PAYMENT_TYPE,
+    WAITING_SUPERVISOR_CHARGE_EDIT,
     active_manager_mentions,
     back_keyboard,
     classify_close_comment,
     close_summary_text,
     edit_charge_keyboard,
     manager_prompt_text,
+    open_damage_cases_keyboard,
     parse_payment_amount,
+    parse_supervisor_charge_edit,
     parse_split_payment_amount,
     parse_service_estimate_amount,
     payment_type_keyboard,
@@ -130,12 +133,54 @@ def test_edit_charge_keyboard_has_correction_button() -> None:
     assert button.callback_data == "damage_control:edit_charge:7"
 
 
+def test_open_damage_cases_keyboard_has_supervisor_edit_buttons() -> None:
+    keyboard = open_damage_cases_keyboard([DamageControlCase(id=25), DamageControlCase(id=26)])
+
+    labels = [button.text for row in keyboard.inline_keyboard for button in row]
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert labels == ["👔 #25 закрыть/изменить", "👔 #26 закрыть/изменить"]
+    assert callbacks == ["damage_control:edit_charge:25", "damage_control:edit_charge:26"]
+
+
 def test_payment_flow_has_required_driver_name_step() -> None:
     assert WAITING_DRIVER_NAME == "WAITING_DRIVER_NAME"
     assert WAITING_PAYMENT_TYPE == "WAITING_PAYMENT_TYPE"
     assert WAITING_DISPATCHER_COMMENT == "WAITING_DISPATCHER_COMMENT"
     assert WAITING_PAYMENT_AMOUNT == "WAITING_PAYMENT_AMOUNT"
     assert WAITING_PAYMENT_CORRECTION == "WAITING_PAYMENT_CORRECTION"
+    assert WAITING_SUPERVISOR_CHARGE_EDIT == "WAITING_SUPERVISOR_CHARGE_EDIT"
+
+
+def test_supervisor_charge_edit_parses_full_payload() -> None:
+    case = DamageControlCase(payment_type="Наличка (касса)", payment_amount=1000, close_comment="старое")
+
+    data, error = parse_supervisor_charge_edit(
+        "Е285СА797; Иванов Иван Иванович; Рассрочка; 5000; 5000р по 1000р в сутки",
+        case,
+    )
+
+    assert error is None
+    assert data["plate_normalized"] == "Е285СА797"
+    assert data["driver_name"] == "Иванов Иван Иванович"
+    assert data["payment_type"] == "Рассрочка в 1С"
+    assert data["payment_amount"] == 5000
+    assert data["close_comment"] == "5000р по 1000р в сутки"
+    assert data["close_type"] == "CLOSED_INSTALLMENT"
+
+
+def test_supervisor_charge_edit_keeps_existing_fields_with_dash() -> None:
+    case = DamageControlCase(payment_type="Наличка (касса)", payment_amount=1000, close_comment="старое")
+
+    data, error = parse_supervisor_charge_edit("-; -; -; -; -", case)
+
+    assert error is None
+    assert "plate_normalized" not in data
+    assert "driver_name" not in data
+    assert data["payment_type"] == "Наличка (касса)"
+    assert data["payment_amount"] == 1000
+    assert data["close_comment"] == "старое"
+    assert data["close_type"] == "CLOSED_PAID_CASH"
 
 
 def test_payment_type_button_is_allowed_after_driver_name() -> None:
