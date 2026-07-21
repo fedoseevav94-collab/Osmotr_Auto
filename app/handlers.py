@@ -8,7 +8,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
@@ -496,10 +496,11 @@ async def supervisor_menu_action(callback: CallbackQuery, state: FSMContext) -> 
     elif action == "edit_charge":
         await _set_state(state, ExportFlow.charge_edit_case_id)
         await callback.message.answer(
-            "Напишите ID списания/повреждения.\n\n"
-            "Пример: 25\n\n"
-            "ID видно в списке открытых повреждений: /open_damages. "
-            "Также он будет в выгрузке списаний после обновления."
+            "Напишите ID списания/повреждения или госномер авто.\n\n"
+            "Примеры:\n"
+            "25\n"
+            "Н239ОР797\n\n"
+            "Если напишете госномер, я покажу найденные списания по датам и типам осмотра."
         )
     elif action == "open_damages":
         await send_open_damages(callback.message)
@@ -1765,14 +1766,63 @@ async def supervisor_charge_edit_case_id(message: Message, state: FSMContext) ->
     if not is_supervisor(message.from_user.username, _settings().supervisor_username):
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
-    case_id = (message.text or "").strip()
-    if not case_id.isdigit():
-        await message.answer("Напишите только ID, например: 25")
+    query = (message.text or "").strip()
+    if query.isdigit():
+        await state.clear()
+        from app.damage_control import start_supervisor_charge_edit
+
+        await start_supervisor_charge_edit(message, int(query))
+        return
+
+    plate = normalize_plate(query)
+    if not plate or not is_valid_plate(plate):
+        await message.answer(
+            "Не понял ID или госномер.\n\n"
+            "Примеры:\n"
+            "25\n"
+            "Н239ОР797"
+        )
+        return
+
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        rows = await repo.damage_control_cases_for_plate(plate)
+    if not rows:
+        await message.answer(f"По госномеру {display_plate(plate)} списания/повреждения не найдены.")
         return
     await state.clear()
+    await message.answer(
+        f"Нашёл записи по {display_plate(plate)}. Выберите нужную:",
+        reply_markup=charge_case_choices_keyboard(rows),
+    )
+
+
+@router.callback_query(F.data.startswith("charge_case:"))
+async def supervisor_charge_case_choice(callback: CallbackQuery) -> None:
+    if not is_supervisor(callback.from_user.username, _settings().supervisor_username):
+        await callback.message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        await callback.answer()
+        return
+    case_id = callback.data.split(":", 1)[1]
+    if not case_id.isdigit():
+        await callback.answer("Не понял запись.", show_alert=True)
+        return
+    await callback.answer()
     from app.damage_control import start_supervisor_charge_edit
 
-    await start_supervisor_charge_edit(message, int(case_id))
+    await start_supervisor_charge_edit(callback.message, int(case_id))
+
+
+def charge_case_choices_keyboard(rows) -> InlineKeyboardMarkup:
+    buttons = []
+    for row in rows[:20]:
+        inspection = row.inspection
+        date = inspection.completed_at.strftime("%d.%m %H:%M") if inspection.completed_at else "без даты"
+        scenario = inspection.scenario or "осмотр"
+        status = "закрыто" if row.status in FINAL_STATUSES else row.status.lower()
+        label = f"#{row.id} · {date} · {scenario} · {status}"
+        buttons.append([InlineKeyboardButton(text=label[:64], callback_data=f"charge_case:{row.id}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 async def send_scores_export(message: Message, start: datetime, end: datetime) -> None:

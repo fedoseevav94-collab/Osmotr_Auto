@@ -437,6 +437,23 @@ class InspectionRepository:
         )
         return list(await self.session.scalars(query))
 
+    async def damage_control_cases_for_plate(self, plate_normalized: str, limit: int = 20) -> list[DamageControlCase]:
+        query = (
+            select(DamageControlCase)
+            .join(InspectionSession, DamageControlCase.inspection_id == InspectionSession.id)
+            .where(
+                or_(
+                    DamageControlCase.plate_normalized == plate_normalized,
+                    InspectionSession.plate_normalized == plate_normalized,
+                    InspectionSession.plate_raw == plate_normalized,
+                )
+            )
+            .order_by(desc(InspectionSession.completed_at), desc(DamageControlCase.id))
+            .limit(limit)
+            .options(selectinload(DamageControlCase.inspection))
+        )
+        return list(await self.session.scalars(query))
+
     async def open_damage_control_cases(self, final_statuses: set[str]) -> list[DamageControlCase]:
         query = (
             select(DamageControlCase)

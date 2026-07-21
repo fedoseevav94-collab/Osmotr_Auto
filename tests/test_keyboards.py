@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.keyboards import (
     BACK_BUTTON,
     FORWARD_BUTTON,
@@ -18,6 +20,8 @@ from app.keyboards import (
     supervisor_menu_keyboard,
     tire_type_keyboard,
 )
+from app.handlers import charge_case_choices_keyboard
+from app.models import DamageControlCase, InspectionSession
 
 
 def _inline_labels(keyboard):
@@ -111,3 +115,15 @@ def test_plate_choices_keyboard_hides_duplicate_plates():
     )
 
     assert labels == ["🚘 Т500НТ797 · Haval F7", "✍️ Ввести номер вручную"]
+
+
+def test_charge_case_choices_show_date_scenario_and_status():
+    case = DamageControlCase(
+        id=25,
+        status="CLOSED_INSTALLMENT",
+        inspection=InspectionSession(completed_at=datetime(2026, 7, 21, 10, 39), scenario="Сдача"),
+    )
+
+    labels = _inline_labels(charge_case_choices_keyboard([case]))
+
+    assert labels == ["#25 · 21.07 10:39 · Сдача · закрыто"]
