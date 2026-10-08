@@ -10,6 +10,7 @@ from app.keyboards import (
     reset_confirm_keyboard,
     driver_remarks_keyboard,
     export_period_keyboard,
+    inspection_period_keyboard,
     plate_choices_keyboard,
     problem_period_keyboard,
     scenario_keyboard,
@@ -55,6 +56,7 @@ def test_staff_idle_keyboard_has_start_button():
 def test_supervisor_menu_has_management_actions_and_staff_mode():
     labels = _inline_labels(supervisor_menu_keyboard())
     assert "📊 Статистика за сегодня" in labels
+    assert "📋 Выгрузить все осмотры" in labels
     assert "📥 Выгрузить оценки" in labels
     assert "⚠️ Проблемные авто" in labels
     assert "💸 Выгрузить списания" in labels
@@ -70,7 +72,27 @@ def test_export_period_keyboards_have_year_and_all_time() -> None:
     for keyboard in (export_period_keyboard(), problem_period_keyboard(), charge_period_keyboard()):
         labels = _inline_labels(keyboard)
         assert "📚 Текущий год" in labels
+        assert "🗓 Последние 12 месяцев" in labels
         assert "🗂️ За всё время" in labels
+
+
+def test_inspection_period_keyboard_has_requested_periods() -> None:
+    keyboard = inspection_period_keyboard()
+    assert _inline_labels(keyboard) == [
+        "🗓️ Текущая неделя",
+        "📆 Текущий месяц",
+        "📊 Текущий квартал",
+        "📚 Текущий год",
+        "✍️ Свой период",
+    ]
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert callbacks == [
+        "inspections:week",
+        "inspections:month",
+        "inspections:quarter",
+        "inspections:year",
+        "inspections:custom",
+    ]
 
 
 def test_staff_keyboard_hides_forward_by_default():

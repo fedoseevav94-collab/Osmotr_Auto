@@ -2,15 +2,30 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import Base
 
 
 def make_engine(database_url: str) -> AsyncEngine:
-    return create_async_engine(database_url, future=True)
+    engine = create_async_engine(database_url, future=True, pool_pre_ping=True)
+    if engine.url.get_backend_name().startswith("sqlite"):
+        database = engine.url.database
+        if database and database != ":memory:":
+            Path(database).expanduser().parent.mkdir(parents=True, exist_ok=True)
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def configure_sqlite(dbapi_connection, _connection_record) -> None:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            if database and database != ":memory:":
+                cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.close()
+    return engine
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

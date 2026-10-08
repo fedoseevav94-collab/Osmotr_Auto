@@ -25,6 +25,19 @@ def optional_int_env(name: str) -> int | None:
         return None
 
 
+def int_env(name: str, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    raw_value = os.getenv(name, "").strip()
+    try:
+        value = int(raw_value) if raw_value else default
+    except ValueError:
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    if maximum is not None and value > maximum:
+        return default
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     bot_token: str
@@ -68,19 +81,21 @@ class Settings:
             vehicle_plates_xlsx=Path(plates_path) if plates_path else None,
             plate_audit_enabled=os.getenv("PLATE_AUDIT_ENABLED", "false").strip().lower()
             not in {"0", "false", "no", "off"},
-            plate_audit_hour=int(os.getenv("PLATE_AUDIT_HOUR", "4")),
+            plate_audit_hour=int_env("PLATE_AUDIT_HOUR", 4, minimum=0, maximum=23),
             supervisor_telegram_id=optional_int_env("SUPERVISOR_TELEGRAM_ID"),
             service_username=os.getenv("SERVICE_USERNAME", "Norblacksmith").strip().lstrip("@"),
             manager_days_off=os.getenv(
                 "MANAGER_DAYS_OFF",
                 "pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun",
             ).strip(),
-            reminder_first_delay_minutes=int(os.getenv("REMINDER_FIRST_DELAY_MINUTES", "10")),
-            fp_manager_response_delay_minutes=int(os.getenv("FP_MANAGER_RESPONSE_DELAY_MINUTES", "45")),
-            reminder_interval_minutes=int(os.getenv("REMINDER_INTERVAL_MINUTES", "30")),
-            max_reminders=int(os.getenv("MAX_REMINDERS", "3")),
-            service_amount_reminder_interval_minutes=int(
-                os.getenv("SERVICE_AMOUNT_REMINDER_INTERVAL_MINUTES", "10")
+            reminder_first_delay_minutes=int_env("REMINDER_FIRST_DELAY_MINUTES", 10, minimum=1),
+            fp_manager_response_delay_minutes=int_env(
+                "FP_MANAGER_RESPONSE_DELAY_MINUTES", 45, minimum=1
+            ),
+            reminder_interval_minutes=int_env("REMINDER_INTERVAL_MINUTES", 30, minimum=1),
+            max_reminders=int_env("MAX_REMINDERS", 3, minimum=1),
+            service_amount_reminder_interval_minutes=int_env(
+                "SERVICE_AMOUNT_REMINDER_INTERVAL_MINUTES", 10, minimum=1
             ),
             office_timezone=os.getenv("OFFICE_TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow",
         )

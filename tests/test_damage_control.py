@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
+import pytest
+from aiogram.exceptions import TelegramBadRequest
 from app.config import Settings
 from app.damage_control import (
     ESCALATED,
@@ -27,6 +30,7 @@ from app.damage_control import (
     valid_no_charge_reason,
     _pending_step_text,
     _first_due_at,
+    _send_fp_fallback,
     _waiting_callback_error,
 )
 from app.models import DamageControlCase, InspectionSession
@@ -77,6 +81,7 @@ def test_service_estimate_amount_must_be_plain_amount() -> None:
     assert parse_service_estimate_amount("40000") == 40000
     assert parse_service_estimate_amount("40 000") == 40000
     assert parse_service_estimate_amount("40 тыс") == 40000
+    assert parse_service_estimate_amount("40000₽") == 40000
     assert parse_service_estimate_amount("40000?") is None
     assert parse_service_estimate_amount("думаю 40000") is None
 
@@ -181,6 +186,23 @@ def test_supervisor_charge_edit_keeps_existing_fields_with_dash() -> None:
     assert data["payment_amount"] == 1000
     assert data["close_comment"] == "старое"
     assert data["close_type"] == "CLOSED_PAID_CASH"
+
+
+def test_supervisor_split_charge_edit_sums_all_parts() -> None:
+    case = DamageControlCase(
+        payment_type="Раздельная оплата",
+        payment_amount=17,
+        close_comment="старое",
+    )
+
+    data, error = parse_supervisor_charge_edit(
+        "-; -; Раздельная оплата; "
+        "17 переводом 3 завтра скинет; исправлено",
+        case,
+    )
+
+    assert error is None
+    assert data["payment_amount"] == 20000
 
 
 def test_payment_type_button_is_allowed_after_driver_name() -> None:
@@ -309,3 +331,20 @@ def test_first_due_moves_late_report_to_next_working_morning() -> None:
     due = _first_due_at(created_at.replace(tzinfo=None), 45, settings)
 
     assert due == datetime(2026, 6, 3, 6, 45)
+
+
+@pytest.mark.asyncio
+async def test_fp_reply_falls_back_when_original_message_is_missing() -> None:
+    bot = AsyncMock()
+    bot.send_message.side_effect = [
+        TelegramBadRequest(method=None, message="message to be replied not found"),
+        "sent",
+    ]
+    case = DamageControlCase(id=7, fp_chat_id=-1001, fp_message_id=99)
+
+    result = await _send_fp_fallback(bot, case, "текст")
+
+    assert result == "sent"
+    assert bot.send_message.await_count == 2
+    assert bot.send_message.await_args_list[1].kwargs["allow_sending_without_reply"] is True
+    assert "reply_to_message_id" not in bot.send_message.await_args_list[1].kwargs

@@ -26,6 +26,7 @@ class InspectionFlow(StatesGroup):
 
 class ExportFlow(StatesGroup):
     custom_period = State()
+    inspection_custom_period = State()
     problem_custom_period = State()
     charge_custom_period = State()
     charge_edit_case_id = State()

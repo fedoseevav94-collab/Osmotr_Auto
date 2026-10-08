@@ -53,6 +53,7 @@ def supervisor_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статистика за сегодня", callback_data="supervisor:stats_today")],
+            [InlineKeyboardButton(text="📋 Выгрузить все осмотры", callback_data="supervisor:export_inspections")],
             [InlineKeyboardButton(text="📥 Выгрузить оценки", callback_data="supervisor:export_scores")],
             [InlineKeyboardButton(text="⚠️ Проблемные авто", callback_data="supervisor:export_problems")],
             [InlineKeyboardButton(text="💸 Выгрузить списания", callback_data="supervisor:export_charges")],
@@ -237,8 +238,26 @@ def export_period_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🗓️ Текущая неделя", callback_data="export:week")],
             [InlineKeyboardButton(text="📆 Текущий месяц", callback_data="export:month")],
             [InlineKeyboardButton(text="📚 Текущий год", callback_data="export:year")],
+            [
+                InlineKeyboardButton(
+                    text="🗓 Последние 12 месяцев",
+                    callback_data="export:last12",
+                )
+            ],
             [InlineKeyboardButton(text="🗂️ За всё время", callback_data="export:all")],
             [InlineKeyboardButton(text="✍️ Свой период", callback_data="export:custom")],
+        ]
+    )
+
+
+def inspection_period_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🗓️ Текущая неделя", callback_data="inspections:week")],
+            [InlineKeyboardButton(text="📆 Текущий месяц", callback_data="inspections:month")],
+            [InlineKeyboardButton(text="📊 Текущий квартал", callback_data="inspections:quarter")],
+            [InlineKeyboardButton(text="📚 Текущий год", callback_data="inspections:year")],
+            [InlineKeyboardButton(text="✍️ Свой период", callback_data="inspections:custom")],
         ]
     )
 
@@ -251,6 +270,12 @@ def problem_period_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🗓️ Текущая неделя", callback_data="problems:week")],
             [InlineKeyboardButton(text="📆 Текущий месяц", callback_data="problems:month")],
             [InlineKeyboardButton(text="📚 Текущий год", callback_data="problems:year")],
+            [
+                InlineKeyboardButton(
+                    text="🗓 Последние 12 месяцев",
+                    callback_data="problems:last12",
+                )
+            ],
             [InlineKeyboardButton(text="🗂️ За всё время", callback_data="problems:all")],
             [InlineKeyboardButton(text="✍️ Свой период", callback_data="problems:custom")],
         ]
@@ -265,6 +290,12 @@ def charge_period_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🗓️ Текущая неделя", callback_data="charges:week")],
             [InlineKeyboardButton(text="📆 Текущий месяц", callback_data="charges:month")],
             [InlineKeyboardButton(text="📚 Текущий год", callback_data="charges:year")],
+            [
+                InlineKeyboardButton(
+                    text="🗓 Последние 12 месяцев",
+                    callback_data="charges:last12",
+                )
+            ],
             [InlineKeyboardButton(text="🗂️ За всё время", callback_data="charges:all")],
             [InlineKeyboardButton(text="✍️ Свой период", callback_data="charges:custom")],
         ]

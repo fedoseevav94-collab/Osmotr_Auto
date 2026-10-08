@@ -33,6 +33,8 @@ SCORE_HEADERS = [
     "Ссылка на сообщение в ФП",
 ]
 
+INSPECTION_HEADERS = ["ID осмотра", *SCORE_HEADERS]
+
 HISTORY_HEADERS = SCORE_HEADERS[1:]
 
 CHARGE_HEADERS = [
@@ -65,13 +67,54 @@ def period_bounds(period: str, now: datetime | None = None) -> tuple[datetime, d
         else:
             end = start.replace(month=start.month + 1)
         return start.replace(tzinfo=None), end.replace(tzinfo=None)
+    if period == "quarter":
+        start_month = ((today.month - 1) // 3) * 3 + 1
+        start = today.replace(month=start_month, day=1)
+        if start_month == 10:
+            end = start.replace(year=start.year + 1, month=1)
+        else:
+            end = start.replace(month=start_month + 3)
+        return start.replace(tzinfo=None), end.replace(tzinfo=None)
     if period == "year":
         start = today.replace(month=1, day=1)
         end = start.replace(year=start.year + 1)
         return start.replace(tzinfo=None), end.replace(tzinfo=None)
+    if period == "last12":
+        try:
+            start = today.replace(year=today.year - 1)
+        except ValueError:
+            start = today.replace(year=today.year - 1, day=28)
+        return start.replace(tzinfo=None), (today + timedelta(days=1)).replace(tzinfo=None)
     if period == "all":
         return datetime(1970, 1, 1), (today + timedelta(days=1)).replace(tzinfo=None)
     raise ValueError(f"Unknown period: {period}")
+
+
+def custom_period_bounds(value: str) -> tuple[datetime, datetime]:
+    try:
+        raw_start, raw_end = [part.strip() for part in value.split("-", 1)]
+        start = datetime.strptime(raw_start, "%d.%m.%Y")
+        end_day = datetime.strptime(raw_end, "%d.%m.%Y")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Формат: ДД.ММ.ГГГГ-ДД.ММ.ГГГГ") from exc
+    if start > end_day:
+        raise ValueError(
+            "Начальная дата не может быть позже конечной"
+        )
+    return start, end_day + timedelta(days=1)
+
+
+def charge_export_stats(rows: list[DamageControlCase]) -> dict[str, int]:
+    monetary = [row for row in rows if row.payment_amount is not None and row.payment_amount > 0]
+    no_charge = [row for row in rows if row.payment_amount == 0]
+    legacy = [row for row in rows if row.payment_amount is None]
+    return {
+        "total": len(rows),
+        "monetary": len(monetary),
+        "no_charge": len(no_charge),
+        "legacy": len(legacy),
+        "amount": sum(row.payment_amount or 0 for row in monetary),
+    }
 
 
 def fp_link(row: InspectionSession) -> str:
@@ -114,6 +157,25 @@ def write_scores_xlsx(rows: list[InspectionSession], output_path: Path) -> Path:
     ws.append(SCORE_HEADERS)
     for row in rows:
         ws.append([display_plate(row.plate_normalized or row.plate_raw), *_base_values(row)])
+    _autosize(ws)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+    return output_path
+
+
+def write_inspections_xlsx(rows: list[InspectionSession], output_path: Path) -> Path:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Все осмотры"
+    ws.append(INSPECTION_HEADERS)
+    for row in rows:
+        ws.append(
+            [
+                row.id,
+                display_plate(row.plate_normalized or row.plate_raw),
+                *_base_values(row),
+            ]
+        )
     _autosize(ws)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)

@@ -110,6 +110,9 @@ class InspectionRepository:
     async def score_rows(self, start: datetime, end: datetime) -> list[InspectionSession]:
         return await self._completed_between(start, end)
 
+    async def inspection_rows(self, start: datetime, end: datetime) -> list[InspectionSession]:
+        return await self._completed_between(start, end)
+
     async def history_for_plate(self, plate_normalized: str) -> list[InspectionSession]:
         query = (
             select(InspectionSession)
@@ -427,12 +430,11 @@ class InspectionRepository:
             select(DamageControlCase)
             .join(InspectionSession, DamageControlCase.inspection_id == InspectionSession.id)
             .where(
-                InspectionSession.status == SessionStatus.COMPLETED.value,
-                InspectionSession.completed_at >= start,
-                InspectionSession.completed_at < end,
-                DamageControlCase.payment_amount.is_not(None),
+                DamageControlCase.closed_at.is_not(None),
+                DamageControlCase.closed_at >= start,
+                DamageControlCase.closed_at < end,
             )
-            .order_by(desc(InspectionSession.completed_at), desc(DamageControlCase.id))
+            .order_by(desc(DamageControlCase.closed_at), desc(DamageControlCase.id))
             .options(selectinload(DamageControlCase.inspection))
         )
         return list(await self.session.scalars(query))

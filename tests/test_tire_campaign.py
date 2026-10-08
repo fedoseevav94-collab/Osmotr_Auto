@@ -4,7 +4,7 @@ import pytest
 
 from app.constants import Scenario
 from app.db import init_db, make_engine, make_sessionmaker, session_scope
-from app.handlers import required_score_fields
+from app.handlers import _should_ask_tire, required_score_fields
 from app.models import InspectionSession
 from app.repository import InspectionRepository
 from app.utils import is_supervisor
@@ -14,6 +14,36 @@ def test_supervisor_username_is_case_insensitive():
     assert is_supervisor("Fedos_AV", "Fedos_AV")
     assert is_supervisor("fedos_av", "Fedos_AV")
     assert is_supervisor("@Fedos_AV", "fedos_av")
+
+
+def test_active_campaign_requires_fresh_tire_check_even_if_car_was_checked_before():
+    assert _should_ask_tire(
+        scenario=Scenario.RETURN,
+        tire_score=None,
+        campaign_applies=True,
+        already_checked=True,
+        tire_required_for_new_plate=False,
+    )
+
+
+def test_previous_tire_check_is_reused_only_without_active_campaign():
+    assert not _should_ask_tire(
+        scenario=Scenario.RETURN,
+        tire_score=None,
+        campaign_applies=False,
+        already_checked=True,
+        tire_required_for_new_plate=False,
+    )
+
+
+def test_current_inspection_does_not_repeat_completed_tire_step():
+    assert not _should_ask_tire(
+        scenario=Scenario.RETURN,
+        tire_score=5,
+        campaign_applies=True,
+        already_checked=True,
+        tire_required_for_new_plate=False,
+    )
 
 
 @pytest.mark.asyncio

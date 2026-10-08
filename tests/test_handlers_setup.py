@@ -1,3 +1,6 @@
+import pytest
+from sqlalchemy import text
+
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
 from app.handlers import _settings, _start_mode_for_user, setup_router
@@ -36,3 +39,20 @@ def test_start_mode_role_selection_only_for_supervisor(tmp_path):
     assert _start_mode_for_user("Fedos_AV") == "supervisor"
     assert _start_mode_for_user("ordinary_staff") == "staff"
     assert _start_mode_for_user(None) == "staff"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_engine_creates_parent_and_enables_safety_pragmas(tmp_path):
+    database_path = tmp_path / "nested" / "bot.db"
+    engine = make_engine(f"sqlite+aiosqlite:///{database_path}")
+
+    assert database_path.parent.exists()
+    async with engine.connect() as connection:
+        foreign_keys = await connection.scalar(text("PRAGMA foreign_keys"))
+        busy_timeout = await connection.scalar(text("PRAGMA busy_timeout"))
+        journal_mode = await connection.scalar(text("PRAGMA journal_mode"))
+
+    assert foreign_keys == 1
+    assert busy_timeout == 5000
+    assert str(journal_mode).lower() == "wal"
+    await engine.dispose()

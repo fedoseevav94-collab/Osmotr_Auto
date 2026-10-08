@@ -9,7 +9,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import func, select
@@ -518,11 +518,12 @@ async def damage_control_message(message: Message) -> None:
                 case.closed_at = _utcnow()
                 case.waiting_comment_user_id = None
                 case.waiting_comment_username = None
-                await message.bot.send_message(
-                    chat_id=case.fp_chat_id,
-                    text=charge_correction_summary_text(case, message.from_user.full_name, message.from_user.username),
-                    reply_to_message_id=case.fp_message_id,
-                    allow_sending_without_reply=False,
+                await _send_case_followup(
+                    message.bot,
+                    case,
+                    charge_correction_summary_text(
+                        case, message.from_user.full_name, message.from_user.username
+                    ),
                     reply_markup=edit_charge_keyboard(case.id),
                 )
                 return
@@ -698,6 +699,7 @@ def _parse_payment_amounts(text: str) -> list[int]:
 
 def parse_service_estimate_amount(text: str) -> int | None:
     normalized = " ".join(text.lower().replace("ё", "е").strip().split())
+    normalized = normalized.replace("₽", "р")
     if not normalized or "?" in normalized:
         return None
     if not re.fullmatch(r"\d+(?:[\s.]?\d{3})*(?:[,.]\d+)?\s*(?:тыс|т\.?р|к|р|руб|руб\.)?", normalized):
@@ -740,7 +742,12 @@ def parse_supervisor_charge_edit(text: str, case: DamageControlCase) -> tuple[di
             return {}, "Сумма не указана, а в кейсе её ещё нет."
         data["payment_amount"] = case.payment_amount
     else:
-        amount = 0 if payment_label == NO_CHARGE_PAYMENT_TYPE else parse_payment_amount(amount_raw)
+        if payment_label == NO_CHARGE_PAYMENT_TYPE:
+            amount = 0
+        elif payment_key == "split_payment":
+            amount = parse_split_payment_amount(amount_raw)
+        else:
+            amount = parse_payment_amount(amount_raw)
         if amount is None:
             return {}, "Не понял сумму списания."
         data["payment_amount"] = amount
@@ -1206,11 +1213,11 @@ async def _record_service_response(
     if case.status == WAITING_SERVICE_AMOUNT:
         case.status = SERVICE_AMOUNT_RECEIVED
     amount_text = f": {case.service_amount}" if case.service_amount else ""
-    await message.bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=f"Получил ответ от @{message.from_user.username or 'Norblacksmith'} по оценке/сумме повреждения{amount_text}.",
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
+    await _send_case_followup(
+        message.bot,
+        case,
+        f"Получил ответ от @{message.from_user.username or 'Norblacksmith'} "
+        f"по оценке/сумме повреждения{amount_text}.",
     )
     logger.info("Service amount response for inspection damage case %s: %s", case.id, text)
     return True
@@ -1229,13 +1236,24 @@ async def user_id_by_username(session: AsyncSession, username: str | None) -> in
 
 
 async def _send_fp_fallback(bot: Bot, case: DamageControlCase, text: str, reply_markup=None):
-    return await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=text,
-        reply_markup=reply_markup,
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
-    )
+    try:
+        return await bot.send_message(
+            chat_id=case.fp_chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            reply_to_message_id=case.fp_message_id,
+            allow_sending_without_reply=False,
+        )
+    except TelegramBadRequest:
+        logger.warning(
+            "Reply target is unavailable for damage case %s; sending without reply", case.id
+        )
+        return await bot.send_message(
+            chat_id=case.fp_chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            allow_sending_without_reply=True,
+        )
 
 
 async def _send_case_followup(bot: Bot, case: DamageControlCase, text: str, reply_markup=None):
@@ -1261,11 +1279,10 @@ async def _close_case(
     case.closed_at = now
     case.first_reminder_due_at = None
     case.service_reminder_due_at = None
-    await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=close_summary_text(case, actor_name, actor_username, comment),
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
+    await _send_case_followup(
+        bot,
+        case,
+        close_summary_text(case, actor_name, actor_username, comment),
         reply_markup=edit_charge_keyboard(case.id) if payment_amount is not None else None,
     )
 
@@ -1368,11 +1385,12 @@ async def _handle_supervisor_charge_edit(
         return True
 
     _apply_supervisor_charge_edit(case, data)
-    await message.bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=charge_correction_summary_text(case, message.from_user.full_name, message.from_user.username),
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
+    await _send_case_followup(
+        message.bot,
+        case,
+        charge_correction_summary_text(
+            case, message.from_user.full_name, message.from_user.username
+        ),
         reply_markup=edit_charge_keyboard(case.id),
     )
     if not _same_chat(message.chat.id, case.fp_chat_id):
@@ -1426,11 +1444,10 @@ async def _escalate(bot: Bot, session: AsyncSession, case: DamageControlCase, se
             return
         except TelegramAPIError:
             logger.exception("Failed to send escalation to @%s", settings.supervisor_username)
-    await bot.send_message(
-        chat_id=case.fp_chat_id,
-        text=f"@{settings.supervisor_username}\n\n{text}",
-        reply_to_message_id=case.fp_message_id,
-        allow_sending_without_reply=False,
+    await _send_case_followup(
+        bot,
+        case,
+        f"@{settings.supervisor_username}\n\n{text}",
     )
 
 

@@ -26,7 +26,16 @@ from app.constants import (
 )
 from app.damage_control import FINAL_STATUSES, open_damage_cases_keyboard, start_damage_control_for_inspection
 from app.db import session_scope
-from app.export import period_bounds, write_charge_xlsx, write_history_xlsx, write_problem_xlsx, write_scores_xlsx
+from app.export import (
+    charge_export_stats,
+    custom_period_bounds,
+    period_bounds,
+    write_charge_xlsx,
+    write_history_xlsx,
+    write_inspections_xlsx,
+    write_problem_xlsx,
+    write_scores_xlsx,
+)
 from app.keyboards import (
     BACK_BUTTON,
     FORWARD_BUTTON,
@@ -38,6 +47,7 @@ from app.keyboards import (
     dtp_keyboard,
     charge_period_keyboard,
     export_period_keyboard,
+    inspection_period_keyboard,
     plate_choices_keyboard,
     plate_correction_keyboard,
     problem_period_keyboard,
@@ -169,7 +179,7 @@ async def _render_current_step(message: Message, state: FSMContext, state_value:
     elif state_value == InspectionFlow.plate_digits.state:
         await message.answer(
             _accent("🔢 Сейчас шаг ввода номера.")
-            + "\nВведите <b>3 цифры госномера</b>.",
+            + "\nВведите <b>3 цифры</b> или <b>полный госномер</b>.",
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
@@ -187,7 +197,7 @@ async def _render_current_step(message: Message, state: FSMContext, state_value:
             )
         else:
             await message.answer(
-                _accent("🔢 Введите 3 цифры госномера."),
+                _accent("🔢 Введите 3 цифры или полный госномер."),
                 reply_markup=reply_markup,
                 parse_mode="HTML",
             )
@@ -267,7 +277,7 @@ def _draft_next_step(inspection):
     if scenario == Scenario.ACCIDENT and not inspection.dtp_driver_guilty:
         return InspectionFlow.accident_guilt, "Водитель виноват?", {}, dtp_keyboard()
     if not inspection.plate_normalized:
-        return InspectionFlow.plate_digits, "Введите 3 цифры госномера.", {}, None
+        return InspectionFlow.plate_digits, "Введите 3 цифры или полный госномер.", {}, None
     if not has_photo(inspection, PhotoType.PLATE):
         return InspectionFlow.plate_photo, "Отправьте фото госномера.", {}, None
     if scenario in SURRENDER_SCENARIOS and not has_photo(inspection, PhotoType.DASHBOARD):
@@ -487,6 +497,11 @@ async def supervisor_menu_action(callback: CallbackQuery, state: FSMContext) -> 
     await callback.answer()
     if action == "stats_today":
         await send_stats_today(callback.message)
+    elif action == "export_inspections":
+        await callback.message.answer(
+            "Выберите период для выгрузки всех осмотров:",
+            reply_markup=inspection_period_keyboard(),
+        )
     elif action == "export_scores":
         await callback.message.answer("Выберите период:", reply_markup=export_period_keyboard())
     elif action == "export_problems":
@@ -751,8 +766,8 @@ async def accident_guilt(callback: CallbackQuery, state: FSMContext) -> None:
 async def ask_plate_digits(message: Message, state: FSMContext) -> None:
     await _set_state(state, InspectionFlow.plate_digits)
     await message.answer(
-        _accent("🔢 Введите 3 цифры госномера.")
-        + "\nНапример, для <b>О864ОО797</b> введите <b>864</b>.",
+        _accent("🔢 Введите 3 цифры или полный госномер.")
+        + "\nНапример: <b>864</b> или <b>О864ОО797</b>.",
         reply_markup=staff_reply_keyboard(),
         parse_mode="HTML",
     )
@@ -762,10 +777,19 @@ async def ask_plate_digits(message: Message, state: FSMContext) -> None:
 async def plate_digits(message: Message, state: FSMContext) -> None:
     if await _handle_control_text(message, state):
         return
-    digits = "".join(char for char in message.text if char.isdigit())
-    if len(digits) != 3:
-        await message.answer(_accent("🔢 Нужно ввести ровно 3 цифры номера."), parse_mode="HTML")
+    value = message.text.strip()
+    if is_valid_plate(value):
+        if await save_plate(message, state, value):
+            await ask_plate_photo(message, state)
         return
+    if not (value.isdigit() and len(value) == 3):
+        await message.answer(
+            _accent("🔢 Введите либо 3 цифры, либо полный госномер.")
+            + "\nНапример: <b>981</b> или <b>В981РН172</b>.",
+            parse_mode="HTML",
+        )
+        return
+    digits = value
     async with session_scope(_sessionmaker()) as session:
         repo = InspectionRepository(session)
         matches = await repo.search_known_plates_by_digits(digits)
@@ -1200,6 +1224,23 @@ async def ask_tire_type(message: Message, state: FSMContext) -> None:
     await message.answer(_accent("🛞 Какая резина стоит на авто?"), reply_markup=tire_type_keyboard(), parse_mode="HTML")
 
 
+def _should_ask_tire(
+    scenario: Scenario,
+    tire_score: int | None,
+    campaign_applies: bool,
+    already_checked: bool,
+    tire_required_for_new_plate: bool,
+) -> bool:
+    if tire_score is not None:
+        return False
+    return bool(
+        scenario == Scenario.TIRES
+        or campaign_applies
+        or tire_required_for_new_plate
+        or (scenario in STANDARD_SCENARIOS and not already_checked)
+    )
+
+
 async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     async with session_scope(_sessionmaker()) as session:
@@ -1208,19 +1249,12 @@ async def maybe_ask_tire_or_finish(message: Message, state: FSMContext) -> None:
         scenario = Scenario(inspection.scenario)
         campaign_applies = await repo.tire_campaign_applies_to_plate(inspection.plate_normalized)
         already_checked = await repo.has_tire_check_for_plate(inspection.plate_normalized, inspection.id)
-        should_ask = (
-            inspection.tire_score is None
-            and (
-                scenario == Scenario.TIRES
-                or (
-                    not already_checked
-                    and (
-                        scenario in STANDARD_SCENARIOS
-                        or campaign_applies
-                        or data.get("tire_required_for_new_plate")
-                    )
-                )
-            )
+        should_ask = _should_ask_tire(
+            scenario=scenario,
+            tire_score=inspection.tire_score,
+            campaign_applies=campaign_applies,
+            already_checked=already_checked,
+            tire_required_for_new_plate=bool(data.get("tire_required_for_new_plate")),
         )
     if should_ask:
         await ask_tire_type(message, state)
@@ -1673,6 +1707,22 @@ async def export_scores_period(callback: CallbackQuery, state: FSMContext) -> No
     await send_scores_export(callback.message, start, end)
 
 
+@router.callback_query(F.data.startswith("inspections:"))
+async def export_inspections_period(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_supervisor(callback.from_user.username, _settings().supervisor_username):
+        await callback.message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        await callback.answer()
+        return
+    period = callback.data.split(":", 1)[1]
+    await callback.answer()
+    if period == "custom":
+        await _set_state(state, ExportFlow.inspection_custom_period)
+        await callback.message.answer("Введите период в формате ДД.ММ.ГГГГ-ДД.ММ.ГГГГ")
+        return
+    start, end = period_bounds(period)
+    await send_inspections_export(callback.message, start, end)
+
+
 @router.callback_query(F.data.startswith("problems:"))
 async def export_problems_period(callback: CallbackQuery, state: FSMContext) -> None:
     if not is_supervisor(callback.from_user.username, _settings().supervisor_username):
@@ -1713,14 +1763,28 @@ async def export_custom_period(message: Message, state: FSMContext) -> None:
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
     try:
-        raw_start, raw_end = [part.strip() for part in message.text.split("-", 1)]
-        start = datetime.strptime(raw_start, "%d.%m.%Y")
-        end = datetime.strptime(raw_end, "%d.%m.%Y").replace(hour=23, minute=59, second=59)
-    except ValueError:
-        await message.answer("Не понял период. Формат: ДД.ММ.ГГГГ-ДД.ММ.ГГГГ")
+        start, end = custom_period_bounds(message.text)
+    except ValueError as exc:
+        await message.answer(f"Не понял период. {exc}")
         return
     await state.clear()
     await send_scores_export(message, start, end)
+
+
+@router.message(ExportFlow.inspection_custom_period, F.text)
+async def export_inspection_custom_period(message: Message, state: FSMContext) -> None:
+    if await _handle_control_text(message, state):
+        return
+    if not is_supervisor(message.from_user.username, _settings().supervisor_username):
+        await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
+        return
+    try:
+        start, end = custom_period_bounds(message.text)
+    except ValueError as exc:
+        await message.answer(f"Не понял период. {exc}")
+        return
+    await state.clear()
+    await send_inspections_export(message, start, end)
 
 
 @router.message(ExportFlow.problem_custom_period, F.text)
@@ -1731,11 +1795,9 @@ async def export_problem_custom_period(message: Message, state: FSMContext) -> N
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
     try:
-        raw_start, raw_end = [part.strip() for part in message.text.split("-", 1)]
-        start = datetime.strptime(raw_start, "%d.%m.%Y")
-        end = datetime.strptime(raw_end, "%d.%m.%Y").replace(hour=23, minute=59, second=59)
-    except ValueError:
-        await message.answer("Не понял период. Формат: ДД.ММ.ГГГГ-ДД.ММ.ГГГГ")
+        start, end = custom_period_bounds(message.text)
+    except ValueError as exc:
+        await message.answer(f"Не понял период. {exc}")
         return
     await state.clear()
     await send_problem_export(message, start, end)
@@ -1749,11 +1811,9 @@ async def export_charge_custom_period(message: Message, state: FSMContext) -> No
         await message.answer("Не лезь куда не надо 😄 Тут кнопки только для директора.")
         return
     try:
-        raw_start, raw_end = [part.strip() for part in message.text.split("-", 1)]
-        start = datetime.strptime(raw_start, "%d.%m.%Y")
-        end = datetime.strptime(raw_end, "%d.%m.%Y").replace(hour=23, minute=59, second=59)
-    except ValueError:
-        await message.answer("Не понял период. Формат: ДД.ММ.ГГГГ-ДД.ММ.ГГГГ")
+        start, end = custom_period_bounds(message.text)
+    except ValueError as exc:
+        await message.answer(f"Не понял период. {exc}")
         return
     await state.clear()
     await send_charge_export(message, start, end)
@@ -1830,8 +1890,28 @@ async def send_scores_export(message: Message, start: datetime, end: datetime) -
         repo = InspectionRepository(session)
         rows = await repo.score_rows(start, end)
     path = _settings().data_dir / f"scores_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
-    write_scores_xlsx(rows, path)
-    await message.answer_document(FSInputFile(path), caption=f"Оценки: {len(rows)} строк")
+    try:
+        write_scores_xlsx(rows, path)
+        await message.answer_document(
+            FSInputFile(path), caption=f"Оценки: {len(rows)} строк"
+        )
+    finally:
+        path.unlink(missing_ok=True)
+
+
+async def send_inspections_export(message: Message, start: datetime, end: datetime) -> None:
+    async with session_scope(_sessionmaker()) as session:
+        repo = InspectionRepository(session)
+        rows = await repo.inspection_rows(start, end)
+    path = _settings().data_dir / f"inspections_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
+    try:
+        write_inspections_xlsx(rows, path)
+        await message.answer_document(
+            FSInputFile(path),
+            caption=f"Все завершённые осмотры: {len(rows)}",
+        )
+    finally:
+        path.unlink(missing_ok=True)
 
 
 async def send_problem_export(message: Message, start: datetime, end: datetime) -> None:
@@ -1839,8 +1919,13 @@ async def send_problem_export(message: Message, start: datetime, end: datetime) 
         repo = InspectionRepository(session)
         rows = await repo.problem_rows(start, end)
     path = _settings().data_dir / f"problems_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
-    write_problem_xlsx(rows, path)
-    await message.answer_document(FSInputFile(path), caption=f"Проблемные авто: {len(rows)} строк")
+    try:
+        write_problem_xlsx(rows, path)
+        await message.answer_document(
+            FSInputFile(path), caption=f"Проблемные авто: {len(rows)} строк"
+        )
+    finally:
+        path.unlink(missing_ok=True)
 
 
 async def send_charge_export(message: Message, start: datetime, end: datetime) -> None:
@@ -1848,8 +1933,20 @@ async def send_charge_export(message: Message, start: datetime, end: datetime) -
         repo = InspectionRepository(session)
         rows = await repo.damage_control_rows(start, end)
     path = _settings().data_dir / f"charges_{start:%Y%m%d}_{end:%Y%m%d}.xlsx"
-    write_charge_xlsx(rows, path)
-    await message.answer_document(FSInputFile(path), caption=f"Списания/закрытия повреждений: {len(rows)} строк")
+    stats = charge_export_stats(rows)
+    caption = (
+        f"Решений: {stats['total']} | "
+        f"списаний: {stats['monetary']} | "
+        f"без списания: {stats['no_charge']} | "
+        f"сумма: {stats['amount']:,} ₽"
+    ).replace(",", " ")
+    if stats["legacy"]:
+        caption += f" | без суммы: {stats['legacy']}"
+    try:
+        write_charge_xlsx(rows, path)
+        await message.answer_document(FSInputFile(path), caption=caption)
+    finally:
+        path.unlink(missing_ok=True)
 
 
 async def send_open_damages(message: Message) -> None:
@@ -1918,8 +2015,11 @@ async def history_auto(message: Message) -> None:
         lines.append(f"{date} | {row.scenario} | кузов {row.body_score or '-'} | тех {row.tech_score or '-'} | оклейка {row.wrap_score or '-'}")
     await message.answer("\n".join(lines))
     path = _settings().data_dir / f"history_{plate}_{datetime.utcnow():%Y%m%d%H%M%S}.xlsx"
-    write_history_xlsx(rows, path)
-    await message.answer_document(FSInputFile(path), caption=f"История по {plate}")
+    try:
+        write_history_xlsx(rows, path)
+        await message.answer_document(FSInputFile(path), caption=f"История по {plate}")
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def setup_router(settings: Settings, sessionmaker: async_sessionmaker) -> None:

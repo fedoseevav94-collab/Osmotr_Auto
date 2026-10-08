@@ -6,6 +6,7 @@ from app.handlers import (
     dashboard_photo_required,
     forward_button,
     inspection_control_button,
+    plate_digits,
     plate_photo_required,
     tire_photo_required,
 )
@@ -14,7 +15,8 @@ from app.states import InspectionFlow
 
 
 class FakeMessage:
-    def __init__(self) -> None:
+    def __init__(self, text: str | None = None) -> None:
+        self.text = text
         self.answers = []
 
     async def answer(self, *args, **kwargs) -> None:
@@ -84,6 +86,33 @@ async def test_reply_keyboard_controls_are_delegated_first(monkeypatch) -> None:
     await inspection_control_button(message, state)
 
     assert calls == [(message, state)]
+    assert message.answers == []
+
+
+async def test_full_plate_is_accepted_at_first_plate_step(monkeypatch) -> None:
+    saved = []
+    photo_steps = []
+
+    async def fake_handle_control_text(message, state):
+        return False
+
+    async def fake_save_plate(message, state, value):
+        saved.append(value)
+        return True
+
+    async def fake_ask_plate_photo(message, state):
+        photo_steps.append((message, state))
+
+    monkeypatch.setattr("app.handlers._handle_control_text", fake_handle_control_text)
+    monkeypatch.setattr("app.handlers.save_plate", fake_save_plate)
+    monkeypatch.setattr("app.handlers.ask_plate_photo", fake_ask_plate_photo)
+    message = FakeMessage("в981рн172")
+    state = FakeState()
+
+    await plate_digits(message, state)
+
+    assert saved == ["в981рн172"]
+    assert photo_steps == [(message, state)]
     assert message.answers == []
 
 
