@@ -45,19 +45,19 @@ def make_settings() -> Settings:
         inspection_staff_usernames=set(),
         data_dir=Path("/tmp"),
         vehicle_plates_xlsx=None,
-        manager_days_off="pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun",
+        manager_days_off="pagorodu:;lalalas19:sat,sun;serb_98:sat,sun",
         office_timezone="Europe/Moscow",
     )
 
 
 def test_active_manager_mentions_excludes_day_off() -> None:
-    days_off = parse_manager_days_off("pagorodu:thu,fri;Kicket22:sat,sun")
+    days_off = parse_manager_days_off("pagorodu:;lalalas19:sat,sun")
 
-    assert days_off["pagorodu"] == {3, 4}
-    assert days_off["kicket22"] == {5, 6}
-    assert active_manager_mentions("pagorodu:thu,fri", 3) == "Менеджеры"
-    assert active_manager_mentions("pagorodu:thu,fri;Kicket22:sat,sun", 1) == "@pagorodu @kicket22"
-    assert active_manager_mentions("Kicket22:sat,sun", 5) == "Менеджеры"
+    assert days_off["pagorodu"] == set()
+    assert days_off["lalalas19"] == {5, 6}
+    assert active_manager_mentions("pagorodu:", 3) == "@pagorodu"
+    assert active_manager_mentions("pagorodu:;lalalas19:sat,sun", 1) == "@pagorodu @lalalas19"
+    assert active_manager_mentions("lalalas19:sat,sun", 5) == "Менеджеры"
 
 
 def test_close_comment_requires_real_action_keyword() -> None:
@@ -320,7 +320,7 @@ def test_manager_prompt_says_service_answer_received() -> None:
 
     text = manager_prompt_text(case, inspection, settings, reminder_number=1)
 
-    assert "Оценка/сумма от @Norblacksmith получена: 10000." in text
+    assert "Оценка/сумма от @pagorodu получена: 10000." in text
     assert "уже запрошен" not in text
 
 

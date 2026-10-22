@@ -917,7 +917,7 @@ def active_manager_mentions(raw_days_off: str, weekday: int) -> str:
 def active_manager_usernames(raw_days_off: str, weekday: int) -> list[str]:
     days_off = parse_manager_days_off(raw_days_off)
     if not days_off:
-        return ["pagorodu", "lalalas19", "serb_98", "Kicket22"]
+        return ["pagorodu", "lalalas19", "serb_98"]
     return [username for username, off_days in days_off.items() if weekday not in off_days]
 
 
@@ -1065,7 +1065,7 @@ async def _ask_payment_amount(
 ) -> None:
     mention = f"@{username.lstrip('@')}" if username else "Менеджер"
     label = PAYMENT_TYPE_LABELS.get(payment_type, payment_type)
-    service_hint = f"\n@Norblacksmith указал: {case.service_amount}." if case.service_amount else ""
+    service_hint = f"\nРанее указана оценка: {case.service_amount}." if case.service_amount else ""
     if payment_type == "split_payment":
         text = (
             f"{mention}, тип: {label}.{service_hint}\n"
@@ -1216,7 +1216,7 @@ async def _record_service_response(
     await _send_case_followup(
         message.bot,
         case,
-        f"Получил ответ от @{message.from_user.username or 'Norblacksmith'} "
+        f"Получил ответ от @{message.from_user.username or service_username} "
         f"по оценке/сумме повреждения{amount_text}.",
     )
     logger.info("Service amount response for inspection damage case %s: %s", case.id, text)

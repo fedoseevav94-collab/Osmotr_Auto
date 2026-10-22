@@ -60,14 +60,14 @@ DATA_DIR=/app/data
 VEHICLE_PLATES_XLSX=/app/seed/park_cars.xlsx
 PLATE_AUDIT_ENABLED=true
 PLATE_AUDIT_HOUR=4
-SERVICE_USERNAME=Norblacksmith
+SERVICE_USERNAME=pagorodu
 SERVICE_AMOUNT_REMINDER_INTERVAL_MINUTES=10
 REMINDER_FIRST_DELAY_MINUTES=10
 REMINDER_INTERVAL_MINUTES=30
 MAX_REMINDERS=3
 FP_MANAGER_RESPONSE_DELAY_MINUTES=45
 OFFICE_TIMEZONE=Europe/Moscow
-MANAGER_DAYS_OFF=pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun
+MANAGER_DAYS_OFF=pagorodu:;lalalas19:sat,sun;serb_98:sat,sun
 ```
 
 Важно: бот должен быть добавлен в чат `ФП - фотофиксация повреждений` и иметь право отправлять сообщения/медиа.
@@ -82,14 +82,14 @@ MANAGER_DAYS_OFF=pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat
 
 Если сотрудник завершил осмотр с повреждениями, бот после публикации отчёта в ФП сам запускает контроль:
 
-- пишет `@Norblacksmith` короткий запрос оценки/суммы reply к опубликованному отчёту;
+- пишет `@pagorodu` короткий запрос оценки/суммы reply к опубликованному отчёту;
 - пишет менеджерам, которые сейчас на смене, в ФП и показывает кнопки `💰 Оплата / списание` и `☑️ Без списания`;
 - для ДТП, где водитель не виноват, показывает только `🔎 Проверено без списания`;
 - не дублирует фото и полное описание повреждений в служебных сообщениях;
 - повторяет напоминания по расписанию и эскалирует после `MAX_REMINDERS`;
 - закрывающее сообщение отправляет reply к исходному отчёту осмотра.
 
-Менеджерам и `Norblacksmith` личные сообщения не отправляются. Личка используется только для эскалации руководителю.
+Менеджерам и `pagorodu` личные сообщения не отправляются. Личка используется только для эскалации руководителю.
 Чтобы эскалация приходила руководителю в личку, руководитель должен один раз написать боту `/start`.
 
 Для `Сдача` и `Пересадка` первое повторное напоминание идёт через `REMINDER_FIRST_DELAY_MINUTES`.

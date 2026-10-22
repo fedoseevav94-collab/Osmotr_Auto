@@ -50,10 +50,8 @@ class Settings:
     plate_audit_enabled: bool = False
     plate_audit_hour: int = 4
     supervisor_telegram_id: int | None = None
-    service_username: str = "Norblacksmith"
-    manager_days_off: str = (
-        "pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun"
-    )
+    service_username: str = "pagorodu"
+    manager_days_off: str = "pagorodu:;lalalas19:sat,sun;serb_98:sat,sun"
     reminder_first_delay_minutes: int = 10
     fp_manager_response_delay_minutes: int = 45
     reminder_interval_minutes: int = 30
@@ -83,10 +81,10 @@ class Settings:
             not in {"0", "false", "no", "off"},
             plate_audit_hour=int_env("PLATE_AUDIT_HOUR", 4, minimum=0, maximum=23),
             supervisor_telegram_id=optional_int_env("SUPERVISOR_TELEGRAM_ID"),
-            service_username=os.getenv("SERVICE_USERNAME", "Norblacksmith").strip().lstrip("@"),
+            service_username=os.getenv("SERVICE_USERNAME", "pagorodu").strip().lstrip("@"),
             manager_days_off=os.getenv(
                 "MANAGER_DAYS_OFF",
-                "pagorodu:thu,fri;lalalas19:sat,sun;serb_98:sat,sun;Kicket22:sat,sun",
+                "pagorodu:;lalalas19:sat,sun;serb_98:sat,sun",
             ).strip(),
             reminder_first_delay_minutes=int_env("REMINDER_FIRST_DELAY_MINUTES", 10, minimum=1),
             fp_manager_response_delay_minutes=int_env(
