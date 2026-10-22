@@ -51,7 +51,7 @@ class Settings:
     plate_audit_hour: int = 4
     supervisor_telegram_id: int | None = None
     service_username: str = "pagorodu"
-    manager_days_off: str = "pagorodu:;lalalas19:sat,sun;serb_98:sat,sun"
+    manager_days_off: str = "pagorodu:sat,sun;lalalas19:sat,sun;serb_98:sat,sun"
     reminder_first_delay_minutes: int = 10
     fp_manager_response_delay_minutes: int = 45
     reminder_interval_minutes: int = 30
@@ -84,7 +84,7 @@ class Settings:
             service_username=os.getenv("SERVICE_USERNAME", "pagorodu").strip().lstrip("@"),
             manager_days_off=os.getenv(
                 "MANAGER_DAYS_OFF",
-                "pagorodu:;lalalas19:sat,sun;serb_98:sat,sun",
+                "pagorodu:sat,sun;lalalas19:sat,sun;serb_98:sat,sun",
             ).strip(),
             reminder_first_delay_minutes=int_env("REMINDER_FIRST_DELAY_MINUTES", 10, minimum=1),
             fp_manager_response_delay_minutes=int_env(

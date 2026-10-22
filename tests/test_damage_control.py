@@ -30,6 +30,8 @@ from app.damage_control import (
     valid_no_charge_reason,
     _pending_step_text,
     _first_due_at,
+    _is_workday,
+    _next_service_due_at,
     _send_fp_fallback,
     _waiting_callback_error,
 )
@@ -45,19 +47,30 @@ def make_settings() -> Settings:
         inspection_staff_usernames=set(),
         data_dir=Path("/tmp"),
         vehicle_plates_xlsx=None,
-        manager_days_off="pagorodu:;lalalas19:sat,sun;serb_98:sat,sun",
+        manager_days_off="pagorodu:sat,sun;lalalas19:sat,sun;serb_98:sat,sun",
         office_timezone="Europe/Moscow",
     )
 
 
 def test_active_manager_mentions_excludes_day_off() -> None:
-    days_off = parse_manager_days_off("pagorodu:;lalalas19:sat,sun")
+    days_off = parse_manager_days_off("pagorodu:sat,sun;lalalas19:sat,sun")
 
-    assert days_off["pagorodu"] == set()
+    assert days_off["pagorodu"] == {5, 6}
     assert days_off["lalalas19"] == {5, 6}
-    assert active_manager_mentions("pagorodu:", 3) == "@pagorodu"
-    assert active_manager_mentions("pagorodu:;lalalas19:sat,sun", 1) == "@pagorodu @lalalas19"
-    assert active_manager_mentions("lalalas19:sat,sun", 5) == "Менеджеры"
+    assert active_manager_mentions("pagorodu:sat,sun", 3) == "@pagorodu"
+    assert active_manager_mentions("pagorodu:sat,sun;lalalas19:sat,sun", 1) == "@pagorodu @lalalas19"
+    assert active_manager_mentions("pagorodu:sat,sun;lalalas19:sat,sun", 5) == "Менеджеры"
+
+
+def test_service_requests_wait_until_monday_on_weekends() -> None:
+    settings = make_settings()
+    friday = datetime(2026, 10, 23, 20, 55)
+    saturday = datetime(2026, 10, 24, 9, 0)
+
+    assert _is_workday(friday, settings)
+    assert not _is_workday(saturday, settings)
+    assert _next_service_due_at(friday, settings) == datetime(2026, 10, 26, 6, 45)
+    assert _next_service_due_at(saturday, settings) == datetime(2026, 10, 26, 6, 45)
 
 
 def test_close_comment_requires_real_action_keyword() -> None:

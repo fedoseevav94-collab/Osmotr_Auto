@@ -162,14 +162,13 @@ async def start_damage_control_for_inspection(
     await session.flush()
 
     if category == CHARGE_REQUIRED:
-        service_message = await _send_service_amount_request(bot, session, case, settings)
-        case.service_requested_at = now
-        if service_message:
-            case.service_request_chat_id = service_message.chat.id
-            case.service_request_message_id = service_message.message_id
-        case.service_reminder_due_at = now + timedelta(
-            minutes=settings.service_amount_reminder_interval_minutes
-        )
+        if _is_workday(now, settings):
+            service_message = await _send_service_amount_request(bot, session, case, settings)
+            case.service_requested_at = now
+            if service_message:
+                case.service_request_chat_id = service_message.chat.id
+                case.service_request_message_id = service_message.message_id
+        case.service_reminder_due_at = _next_service_due_at(now, settings)
 
     await _send_manager_prompt(bot, session, case, inspection, settings, reminder_number=None)
     await session.flush()
@@ -203,15 +202,14 @@ async def process_due_damage_control(
             if case.status in FINAL_STATUSES:
                 continue
             if case.service_reminder_due_at and case.service_reminder_due_at <= now and not case.service_received_at:
-                await _send_service_private_reminder(bot, session, case, settings)
-                service_message = await _send_service_amount_request(bot, session, case, settings)
-                case.service_requested_at = now
-                if service_message:
-                    case.service_request_chat_id = service_message.chat.id
-                    case.service_request_message_id = service_message.message_id
-                case.service_reminder_due_at = now + timedelta(
-                    minutes=settings.service_amount_reminder_interval_minutes
-                )
+                if _is_workday(now, settings):
+                    await _send_service_private_reminder(bot, session, case, settings)
+                    service_message = await _send_service_amount_request(bot, session, case, settings)
+                    case.service_requested_at = now
+                    if service_message:
+                        case.service_request_chat_id = service_message.chat.id
+                        case.service_request_message_id = service_message.message_id
+                case.service_reminder_due_at = _next_service_due_at(now, settings)
             if case.first_reminder_due_at and case.first_reminder_due_at <= now:
                 if case.reminders_sent >= settings.max_reminders:
                     await _escalate(bot, session, case, settings)
@@ -892,13 +890,15 @@ def manager_prompt_text(
 
 
 def service_status_text(case: DamageControlCase, settings: Settings) -> str:
-    if not case.service_received_at:
-        return f"@{settings.service_username} уже запрошен для оценки/суммы."
-    if case.service_amount:
-        return f"Оценка/сумма от @{settings.service_username} получена: {case.service_amount}."
-    if case.service_response_text:
-        return f"Оценка/сумма от @{settings.service_username} получена: {case.service_response_text}."
-    return f"Оценка/сумма от @{settings.service_username} получена."
+    if case.service_received_at:
+        if case.service_amount:
+            return f"Оценка/сумма от @{settings.service_username} получена: {case.service_amount}."
+        if case.service_response_text:
+            return f"Оценка/сумма от @{settings.service_username} получена: {case.service_response_text}."
+        return f"Оценка/сумма от @{settings.service_username} получена."
+    if not case.service_requested_at:
+        return "Оценка/сумма будет запрошена в ближайший рабочий день."
+    return f"@{settings.service_username} уже запрошен для оценки/суммы."
 
 
 def service_amount_request_text(case: DamageControlCase) -> str:
@@ -964,6 +964,23 @@ def _first_due_at(created_at: datetime, delay_minutes: int, settings: Settings) 
     return datetime.combine(local_created.date() + timedelta(days=1), NEXT_DAY_REMINDER_TIME, tzinfo=tz).astimezone(
         UTC
     ).replace(tzinfo=None)
+
+
+def _is_workday(at: datetime, settings: Settings) -> bool:
+    return at.replace(tzinfo=UTC).astimezone(ZoneInfo(settings.office_timezone)).weekday() < 5
+
+
+def _next_service_due_at(at: datetime, settings: Settings) -> datetime:
+    tz = ZoneInfo(settings.office_timezone)
+    local_due = at.replace(tzinfo=UTC).astimezone(tz) + timedelta(
+        minutes=settings.service_amount_reminder_interval_minutes
+    )
+    if local_due.weekday() < 5:
+        return local_due.astimezone(UTC).replace(tzinfo=None)
+    next_date = local_due.date()
+    while next_date.weekday() >= 5:
+        next_date += timedelta(days=1)
+    return datetime.combine(next_date, NEXT_DAY_REMINDER_TIME, tzinfo=tz).astimezone(UTC).replace(tzinfo=None)
 
 
 async def _send_service_amount_request(
